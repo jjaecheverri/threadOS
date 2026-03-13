@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ThreadOS — Tasklet Agent Manual</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg:      #0a0a0c;
+    --surface: #111114;
+    --card:    #17171c;
+    --card2:   #1f1f27;
+    --border:  #1e1e26;
+    --border2: #28283a;
+    --text:    #f0f0f2;
+    --muted:   #71717a;
+    --faint:   #3a3a48;
+    --orange:  #f97316;
+    --green:   #22c55e;
+    --yellow:  #eab308;
+    --red:     #ef4444;
+    --blue:    #3b82f6;
+    --mono:    'JetBrains Mono', monospace;
+    --sans:    'DM Sans', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.65;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 52px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-logo {
+    width: 28px; height: 28px;
+    background: var(--orange);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .header-logo svg { display: block; }
+  .header-title { font-weight: 800; font-size: 15px; color: var(--text); }
+  .header-version { font-size: 10px; color: var(--orange); font-family: var(--mono); }
+  .header-badge {
+    margin-left: auto;
+    background: rgba(249,115,22,.12);
+    border: 1px solid rgba(249,115,22,.25);
+    color: var(--orange);
+    font-size: 10px; font-weight: 700;
+    font-family: var(--mono);
+    padding: 3px 10px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: .06em;
+  }
+
+  /* ── LAYOUT ── */
+  .layout { display: flex; }
+
+  /* ── SIDEBAR NAV ── */
+  .sidenav {
+    width: 220px; flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    height: calc(100vh - 52px);
+    position: sticky; top: 52px;
+    overflow-y: auto;
+    padding: 20px 0;
+  }
+  .sidenav-section {
+    font-size: 9px; font-weight: 700;
+    font-family: var(--mono);
+    color: var(--faint);
+    text-transform: uppercase; letter-spacing: .1em;
+    padding: 0 16px 6px;
+    margin-top: 16px;
+  }
+  .sidenav a {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 16px;
+    font-size: 12px; color: var(--muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: all .12s;
+  }
+  .sidenav a:hover { color: var(--text); background: var(--card); }
+  .sidenav a.active { color: var(--orange); border-left-color: var(--orange); background: rgba(249,115,22,.06); }
+  .sidenav-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex-shrink: 0; }
+
+  /* ── MAIN CONTENT ── */
+  main {
+    flex: 1; min-width: 0;
+    padding: 40px 48px;
+    max-width: 860px;
+  }
+
+  /* ── SECTION ── */
+  .section { margin-bottom: 60px; }
+  .section-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-num {
+    font-size: 11px; font-weight: 700; font-family: var(--mono);
+    color: var(--orange);
+    background: rgba(249,115,22,.1);
+    border: 1px solid rgba(249,115,22,.2);
+    padding: 2px 8px; border-radius: 4px;
+    flex-shrink: 0;
+  }
+  h1 { font-size: 22px; font-weight: 800; color: var(--text); }
+  h2 { font-size: 15px; font-weight: 700; color: var(--text); margin: 28px 0 10px; }
+  h3 { font-size: 12px; font-weight: 700; color: var(--orange); margin: 16px 0 6px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+  p { color: var(--muted); margin-bottom: 10px; font-size: 13.5px; }
+  strong { color: var(--text); font-weight: 600; }
+
+  /* ── CODE / MONO ── */
+  code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--card2);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--orange);
+  }
+  pre {
+    background: var(--card);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 16px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text);
+    line-height: 1.7;
+    margin: 12px 0 16px;
+    position: relative;
+  }
+  pre .key   { color: #93c5fd; }
+  pre .str   { color: #86efac; }
+  pre .num   { color: #fca5a5; }
+  pre .cmt   { color: var(--faint); font-style: italic; }
+  pre .req   { color: var(--orange); }
+
+  /* ── CALLOUT BOXES ── */
+  .callout {
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 12px 0 16px;
+    display: flex; gap: 12px; align-items: flex-start;
+    font-size: 13px; line-height: 1.6;
+  }
+  .callout-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+  .callout.info { background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.2); color: #93c5fd; }
+  .callout.warn { background: rgba(234,179,8,.08); border: 1px solid rgba(234,179,8,.2); color: var(--yellow); }
+  .callout.error { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2); color: #fca5a5; }
+  .callout.success { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.2); color: var(--green); }
+  .callout.orange { background: rgba(249,115,22,.08); border: 1px solid rgba(249,115,22,.2); color: var(--orange); }
+
+  /* ── SCHEMA TABLE ── */
+  .schema-table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 12.5px; }
+  .schema-table th {
+    background: var(--card2); color: var(--muted);
+    font-size: 10px; font-weight: 700; font-family: var(--mono);
+    text-transform: uppercase; letter-spacing: .06em;
+    padding: 8px 12px; text-align: left;
+    border-bottom: 1px solid var(--border2);
+  }
+  .schema-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .schema-table tr:last-child td { border-bottom: none; }
+  .schema-table td:first-child { font-family: var(--mono); font-size: 11.5px; color: var(--orange); white-space: nowrap; }
+  .schema-table td:nth-child(2) { color: var(--blue); font-size: 11px; white-space: nowrap; }
+  .schema-table td:nth-child(3) { color: var(--muted); }
+  .req-badge {
+    font-size: 9px; font-weight: 700; font-family: var(--mono);
+    background: rgba(249,115,22,.12); border: 1px solid rgba(249,115,22,.25);
+    color: var(--orange); padding: 1px 6px; border-radius: 3px;
+    text-transform: uppercase;
+  }
+  .opt-badge {
+    font-size: 9px; font-weight: 700; font-family: var(--mono);
+    background: var(--card2); border: 1px solid var(--border2);
+    color: var(--muted); padding: 1px 6px; border-radius: 3px;
+  }
+
+  /* ── STEP CARDS ── */
+  .steps { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 16px; }
+  .step {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .step-num {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--orange); color: white;
+    font-size: 11px; font-weight: 800; font-family: var(--mono);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .step-body { flex: 1; }
+  .step-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+  .step-desc { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+
+  /* ── FIELD CARDS ── */
+  .field-grid { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 14px; }
+  .field-row {
+    display: flex; gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 7px; overflow: hidden;
+  }
+  .field-key {
+    background: var(--card);
+    border-right: 1px solid var(--border2);
+    padding: 9px 12px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--orange); white-space: nowrap;
+    min-width: 160px; flex-shrink: 0;
+  }
+  .field-val {
+    padding: 9px 14px;
+    font-size: 12.5px; color: var(--muted);
+    line-height: 1.55;
+  }
+
+  /* ── VERDICT PILLS ── */
+  .verdict-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
+  .verdict {
+    border-radius: 8px; padding: 14px;
+    text-align: center;
+  }
+  .verdict.green { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.2); }
+  .verdict.yellow { background: rgba(234,179,8,.08); border: 1px solid rgba(234,179,8,.2); }
+  .verdict.red { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2); }
+  .verdict-label { font-size: 12px; font-weight: 700; font-family: var(--mono); margin-bottom: 4px; }
+  .verdict.green .verdict-label { color: var(--green); }
+  .verdict.yellow .verdict-label { color: var(--yellow); }
+  .verdict.red .verdict-label { color: var(--red); }
+  .verdict-score { font-size: 22px; font-weight: 800; font-family: var(--mono); }
+  .verdict.green .verdict-score { color: var(--green); }
+  .verdict.yellow .verdict-score { color: var(--yellow); }
+  .verdict.red .verdict-score { color: var(--red); }
+  .verdict-desc { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* ── INLINE PILLS ── */
+  .pill {
+    display: inline-block; font-size: 10px; font-weight: 700; font-family: var(--mono);
+    padding: 2px 8px; border-radius: 4px;
+  }
+  .pill.orange { background: rgba(249,115,22,.12); color: var(--orange); border: 1px solid rgba(249,115,22,.25); }
+  .pill.green { background: rgba(34,197,94,.12); color: var(--green); border: 1px solid rgba(34,197,94,.25); }
+  .pill.yellow { background: rgba(234,179,8,.12); color: var(--yellow); border: 1px solid rgba(234,179,8,.25); }
+  .pill.red { background: rgba(239,68,68,.12); color: var(--red); border: 1px solid rgba(239,68,68,.25); }
+  .pill.blue { background: rgba(59,130,246,.12); color: var(--blue); border: 1px solid rgba(59,130,246,.25); }
+
+  /* ── COPY BUTTON ── */
+  .copy-btn {
+    position: absolute; top: 10px; right: 10px;
+    background: var(--card2); border: 1px solid var(--border2);
+    color: var(--muted); font-size: 10px; font-family: var(--mono);
+    padding: 3px 8px; border-radius: 4px; cursor: pointer;
+    transition: all .12s;
+  }
+  .copy-btn:hover { color: var(--text); border-color: var(--orange); }
+
+  /* ── BULLETS ── */
+  ul { padding-left: 18px; margin: 8px 0 12px; }
+  ul li { color: var(--muted); font-size: 13.5px; margin-bottom: 5px; line-height: 1.55; }
+  ul li strong { color: var(--text); }
+
+  /* ── TAB ROW ── */
+  .tab-row {
+    display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px;
+  }
+  .tab-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--card2); border: 1px solid var(--border2);
+    border-radius: 6px; padding: 5px 12px;
+    font-size: 12px; color: var(--muted);
+  }
+  .tab-chip.active {
+    background: rgba(249,115,22,.1); border-color: rgba(249,115,22,.3); color: var(--orange);
+  }
+  .tab-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+    </svg>
+  </div>
+  <span class="header-title">ThreadOS</span>
+  <span class="header-version">v5.0</span>
+  <span class="header-badge">Tasklet Agent Manual</span>
+</div>
+
+<div class="layout">
+
+<!-- SIDEBAR -->
+<nav class="sidenav">
+  <div class="sidenav-section">Core</div>
+  <a href="#overview" class="active"><span class="sidenav-dot"></span>What is ThreadOS?</a>
+  <a href="#contract"><span class="sidenav-dot"></span>The Agent Contract</a>
+  <a href="#schema"><span class="sidenav-dot"></span>Return Schema</a>
+  <a href="#briefing"><span class="sidenav-dot"></span>Reading a Brief</a>
+
+  <div class="sidenav-section">Tabs</div>
+  <a href="#tab-overview"><span class="sidenav-dot"></span>Overview Tab</a>
+  <a href="#tab-brief"><span class="sidenav-dot"></span>Brief Tab</a>
+  <a href="#tab-sessions"><span class="sidenav-dot"></span>Sessions Tab</a>
+  <a href="#tab-agent"><span class="sidenav-dot"></span>Agent Tab ← Core</a>
+  <a href="#tab-decisions"><span class="sidenav-dot"></span>Decisions Tab</a>
+  <a href="#tab-assets"><span class="sidenav-dot"></span>Assets Tab</a>
+  <a href="#tab-tasks"><span class="sidenav-dot"></span>Tasks Tab</a>
+  <a href="#tab-handoffs"><span class="sidenav-dot"></span>Handoffs Tab</a>
+  <a href="#tab-risks"><span class="sidenav-dot"></span>Risks Tab</a>
+
+  <div class="sidenav-section">Reference</div>
+  <a href="#verification"><span class="sidenav-dot"></span>Verification Scoring</a>
+  <a href="#examples"><span class="sidenav-dot"></span>Full Examples</a>
+  <a href="#errors"><span class="sidenav-dot"></span>Common Errors</a>
+</nav>
+
+<!-- MAIN -->
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="overview">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h1>What is ThreadOS?</h1>
+  </div>
+
+  <p>ThreadOS is an AI agent operating system. It manages <strong>projects</strong> that run repeatedly across many agent sessions. Your role as a Tasklet agent is to receive a structured brief, execute the assigned work, and return a structured result in the exact format ThreadOS expects.</p>
+  <p>ThreadOS will <strong>automatically verify your output</strong> against the instruction you were given. Your score determines whether the session is marked <span class="pill green">Delivered</span>, <span class="pill yellow">Partially done</span>, or <span class="pill red">Needs review</span>.</p>
+
+  <div class="callout orange">
+    <span class="callout-icon">⚡</span>
+    <div>Your primary obligation: return a valid JSON response using the <code>sessionTemplate</code> provided in every brief. This is not optional — ThreadOS cannot log your work without it.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="contract">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h1>The Agent Contract</h1>
+  </div>
+
+  <p>Every interaction with ThreadOS follows this loop:</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Receive the brief</div>
+        <div class="step-desc">A JSON block containing the project context, the instruction, constraints, recent decisions, and a <code>sessionTemplate</code> to fill out.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">Execute the instruction</div>
+        <div class="step-desc">Do the work described in <code>brief.instruction</code>. Respect all items in <code>brief.project.constraints</code>. Do not contradict <code>brief.project.decisions</code>.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <div class="step-title">Return the result</div>
+        <div class="step-desc">Fill out the <code>sessionTemplate</code> at the bottom of the brief. Return it as valid JSON. Echo the <code>runId</code> exactly. Do not omit required fields.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <div class="step-title">ThreadOS verifies</div>
+        <div class="step-desc">The human pastes your JSON response into ThreadOS. The system scores your output, logs the session, and either continues the project or flags issues.</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Non-Negotiable Rules</h2>
+  <ul>
+    <li><strong>Always echo the runId.</strong> It is the chain-of-custody proof that you read the brief.</li>
+    <li><strong>Never hallucinate a runId.</strong> Copy it exactly from <code>brief.runId</code>.</li>
+    <li><strong>Always include outputSummary, changesMade, and nextStep.</strong> These are required. Omitting any one causes schema failure.</li>
+    <li><strong>Respect constraints.</strong> Anything listed in <code>brief.project.constraints</code> is a hard rule. Violating it may be flagged as a mismatch and block the next run.</li>
+    <li><strong>Report confidence honestly.</strong> Set <code>confidence</code> between 0.0 and 1.0. If something went wrong or is uncertain, report a lower number and explain in <code>changesMade</code>.</li>
+  </ul>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="schema">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h1>Return Schema</h1>
+  </div>
+
+  <p>This is the exact JSON structure you must return after completing your work. Fields marked <span class="req-badge">required</span> will cause verification failure if missing or too short.</p>
+
+  <table class="schema-table">
+    <thead>
+      <tr>
+        <th>Field</th>
+        <th>Type</th>
+        <th>Description</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>runId</td>
+        <td>string</td>
+        <td>Copy exactly from <code>brief.runId</code>. Do not modify.</td>
+        <td><span class="req-badge">required</span></td>
+      </tr>
+      <tr>
+        <td>tool</td>
+        <td>string</td>
+        <td>The tool that ran this session. Usually "Tasklet".</td>
+        <td><span class="opt-badge">optional</span></td>
+      </tr>
+      <tr>
+        <td>outputSummary</td>
+        <td>string</td>
+        <td>What was accomplished. Min 20 chars, max 2000. Be specific — this is what gets diffed against the instruction. Mention the key deliverables, outcomes, and any limitations.</td>
+        <td><span class="req-badge">required</span></td>
+      </tr>
+      <tr>
+        <td>changesMade</td>
+        <td>string</td>
+        <td>What changed as a result of this run. Files created, state modified, decisions enacted. Min 10 chars.</td>
+        <td><span class="req-badge">required</span></td>
+      </tr>
+      <tr>
+        <td>nextStep</td>
+        <td>string</td>
+        <td>The single most important next instruction for the following agent run. Write it as a direct command. Min 10 chars, max 400. Be specific — vague next steps reduce project health score.</td>
+        <td><span class="req-badge">required</span></td>
+      </tr>
+      <tr>
+        <td>producedAssets</td>
+        <td>string[]</td>
+        <td>Array of filenames or paths created or modified. Include extensions. Example: <code>["src/webhook.ts", "docs/api.md"]</code></td>
+        <td><span class="opt-badge">optional</span></td>
+      </tr>
+      <tr>
+        <td>confidence</td>
+        <td>number</td>
+        <td>Your self-assessed confidence that you completed the instruction correctly. 0.0 = very uncertain, 1.0 = certain. Be honest — low confidence signals the human to review more carefully.</td>
+        <td><span class="opt-badge">optional</span></td>
+      </tr>
+      <tr>
+        <td>decisions</td>
+        <td>object[]</td>
+        <td>Optional. Decisions made during this run that should be permanently recorded. Each: <code>{"title":"...", "rationale":"...", "impact":"..."}</code></td>
+        <td><span class="opt-badge">optional</span></td>
+      </tr>
+      <tr>
+        <td>tasks</td>
+        <td>object[]</td>
+        <td>Optional. New tasks to add to the project. Each: <code>{"title":"...", "status":"todo|in_progress|blocked|done", "owner":"...", "notes":"..."}</code></td>
+        <td><span class="opt-badge">optional</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Minimal Valid Response</h2>
+  <pre><button class="copy-btn" onclick="navigator.clipboard.writeText(this.nextSibling.textContent.trim())">copy</button><span class="key">{
+  </span><span class="str">"runId"</span><span>: </span><span class="str">"run_abc123_xyz9"</span><span>,          </span><span class="cmt">// copy from brief.runId exactly</span>
+  <span class="str">"tool"</span><span>: </span><span class="str">"Tasklet"</span><span>,
+  </span><span class="str">"outputSummary"</span><span>: </span><span class="str">"Webhook handler built with HMAC-SHA256 validation and idempotency keys. Full test suite added (18 tests, 100% pass). Deployed to staging."</span><span>,
+  </span><span class="str">"changesMade"</span><span>: </span><span class="str">"Created src/webhook-handler.ts and tests/webhook.test.ts. Deployed to staging environment."</span><span>,
+  </span><span class="str">"nextStep"</span><span>: </span><span class="str">"Implement GPT-4o inference service with Pinecone retrieval — use text-embedding-3-large for embeddings and validate p95 latency is under 2 seconds."</span>
+<span class="key">}</span></pre>
+
+  <h2>Full Response with Optional Fields</h2>
+  <pre><button class="copy-btn" onclick="navigator.clipboard.writeText(this.nextSibling.textContent.trim())">copy</button><span class="key">{
+  </span><span class="str">"runId"</span><span>: </span><span class="str">"run_abc123_xyz9"</span><span>,
+  </span><span class="str">"tool"</span><span>: </span><span class="str">"Tasklet"</span><span>,
+  </span><span class="str">"outputSummary"</span><span>: </span><span class="str">"..."</span><span>,
+  </span><span class="str">"changesMade"</span><span>: </span><span class="str">"..."</span><span>,
+  </span><span class="str">"nextStep"</span><span>: </span><span class="str">"..."</span><span>,
+  </span><span class="str">"producedAssets"</span><span>: [</span><span class="str">"src/webhook-handler.ts"</span><span>, </span><span class="str">"tests/webhook.test.ts"</span><span>],
+  </span><span class="str">"confidence"</span><span>: </span><span class="num">0.92</span><span>,
+  </span><span class="str">"decisions"</span><span>: [
+    {
+      </span><span class="str">"title"</span><span>: </span><span class="str">"Use HMAC-SHA256 for all webhook validation"</span><span>,
+      </span><span class="str">"rationale"</span><span>: </span><span class="str">"Zendesk requires this; simpler approaches fail their signature check."</span><span>,
+      </span><span class="str">"impact"</span><span>: </span><span class="str">"All webhook endpoints must include the validation middleware."</span>
+    }
+  ],
+  </span><span class="str">"tasks"</span><span>: [
+    { </span><span class="str">"title"</span><span>: </span><span class="str">"Load test inference service — must hit &lt;2s p95"</span><span>, </span><span class="str">"status"</span><span>: </span><span class="str">"todo"</span><span>, </span><span class="str">"owner"</span><span>: </span><span class="str">"Backend"</span><span> }
+  ]
+<span class="key">}</span></pre>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="briefing">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h1>Reading a Brief</h1>
+  </div>
+
+  <p>When a human generates a brief in ThreadOS, you receive a JSON block like this. Here's how to read each part:</p>
+
+  <pre><span class="key">{
+  </span><span class="str">"schema_version"</span><span>: </span><span class="str">"2.0"</span><span>,
+  </span><span class="str">"runId"</span><span>: </span><span class="str">"run_m8xk2_a4f1"</span><span>,              </span><span class="cmt">// ← echo this back in your response</span>
+  </span><span class="str">"projectId"</span><span>: </span><span class="str">"abc123"</span><span>,
+  </span><span class="str">"project"</span><span>: {
+    </span><span class="str">"title"</span><span>:        </span><span class="str">"AI Support Bot"</span><span>,
+    </span><span class="str">"objective"</span><span>:    </span><span class="str">"Build a multi-channel AI support bot with 85%+ Tier-1 resolution."</span><span>,  </span><span class="cmt">// ← your north star</span>
+    </span><span class="str">"coreBrief"</span><span>:   </span><span class="str">"Integrates with Zendesk v2. GPT-4o for inference. Pinecone for KB."</span><span>,
+    </span><span class="str">"currentPhase"</span><span>: </span><span class="str">"Backend Integration"</span><span>,
+    </span><span class="str">"constraints"</span><span>: [                    </span><span class="cmt">// ← HARD RULES — never violate these</span>
+      </span><span class="str">"Zendesk API v2 only"</span><span>,
+      </span><span class="str">"Response latency < 2 seconds"</span><span>,
+      </span><span class="str">"No PII persisted beyond session"</span>
+    ],
+    </span><span class="str">"decisions"</span><span>: [                      </span><span class="cmt">// ← committed choices — do not re-litigate</span>
+      { </span><span class="str">"title"</span><span>: </span><span class="str">"GPT-4o as primary inference"</span><span>, </span><span class="str">"rationale"</span><span>: </span><span class="str">"Lower latency."</span><span> }
+    ],
+    </span><span class="str">"latestSession"</span><span>: {                  </span><span class="cmt">// ← where things left off</span>
+      </span><span class="str">"tool"</span><span>: </span><span class="str">"Claude"</span><span>,
+      </span><span class="str">"outputSummary"</span><span>: </span><span class="str">"Webhook handler built and deployed to staging."</span>
+    }
+  },
+  </span><span class="str">"instruction"</span><span>: </span><span class="str">"Implement GPT-4o inference service with Pinecone retrieval."</span><span>,  </span><span class="cmt">// ← DO THIS</span>
+  </span><span class="str">"targetTool"</span><span>: </span><span class="str">"Tasklet"</span><span>,
+  </span><span class="str">"sessionTemplate"</span><span>: {                  </span><span class="cmt">// ← fill this out and return it</span>
+    </span><span class="str">"runId"</span><span>: </span><span class="num">null</span><span>,                        </span><span class="cmt">// ← replace null with "run_m8xk2_a4f1"</span>
+    </span><span class="str">"tool"</span><span>: </span><span class="str">"Tasklet"</span><span>,
+    </span><span class="str">"outputSummary"</span><span>: </span><span class="str">""</span><span>,
+    </span><span class="str">"changesMade"</span><span>: </span><span class="str">""</span><span>,
+    </span><span class="str">"nextStep"</span><span>: </span><span class="str">""</span><span>,
+    </span><span class="str">"producedAssets"</span><span>: [],
+    </span><span class="str">"confidence"</span><span>: </span><span class="num">null</span>
+  }
+<span class="key">}</span></pre>
+
+  <div class="callout warn">
+    <span class="callout-icon">⚠</span>
+    <div>The <code>sessionTemplate.runId</code> is always <code>null</code> in the brief. You must replace it with the value from <code>brief.runId</code>. If you return <code>null</code>, the run ID check will fail and your verification score will drop.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-overview">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h1>Overview Tab — What You're Looking At</h1>
+  </div>
+  <p>The Overview tab is the human operator's dashboard. As an agent you don't interact with it directly, but understanding what it shows helps you write better output:</p>
+  <div class="field-grid">
+    <div class="field-row"><div class="field-key">Project health</div><div class="field-val">0–100 score. Your verification status affects this. A "Needs review" session subtracts 8 points. Repeated mismatches compound.</div></div>
+    <div class="field-row"><div class="field-key">Agent runs</div><div class="field-val">Total sessions on the active branch. Each successfully verified session advances the project.</div></div>
+    <div class="field-row"><div class="field-key">Latest session</div><div class="field-val">Your most recent output is shown here verbatim. The operator reads this before deciding what to ask next.</div></div>
+    <div class="field-row"><div class="field-key">Next step</div><div class="field-val">The nextStep field from your last response. This pre-fills the Agent tab instruction. Write it well.</div></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-brief">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h1>Brief Tab — The Project Context</h1>
+  </div>
+  <p>The Brief tab defines the project. Everything in it appears in every brief you receive. When reading a brief, these fields are in <code>brief.project</code>:</p>
+  <div class="field-grid">
+    <div class="field-row"><div class="field-key">objective</div><div class="field-val">The north star. Every instruction is in service of this. If your work deviates from it, explain why in <code>outputSummary</code>.</div></div>
+    <div class="field-row"><div class="field-key">coreBrief</div><div class="field-val">Background context — what exists, what has been decided, what the stack looks like.</div></div>
+    <div class="field-row"><div class="field-key">currentPhase</div><div class="field-val">Where the project is right now. Informs scope — don't do work that belongs to a later phase.</div></div>
+    <div class="field-row"><div class="field-key">constraints</div><div class="field-val">Hard rules. Non-negotiable. Violating a constraint will likely result in a "Needs review" verdict and a gate block on the next run.</div></div>
+    <div class="field-row"><div class="field-key">toolStack</div><div class="field-val">Which tools are in use. Tells you the environment you're operating in.</div></div>
+    <div class="field-row"><div class="field-key">decisions</div><div class="field-val">Last 5 committed decisions. Do not re-litigate these. If you believe a decision was wrong, note it in <code>outputSummary</code> and let the human decide.</div></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-sessions">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h1>Sessions Tab — Your Track Record</h1>
+  </div>
+  <p>Every response you return becomes a session in this tab. Each session is scored and stored permanently. Here's what operators can see:</p>
+  <ul>
+    <li>Your <strong>tool name</strong>, verification badge, and confidence score</li>
+    <li>The <strong>prompt</strong> (first 130 chars) you were given</li>
+    <li>Your full <strong>outputSummary</strong></li>
+    <li>Your <strong>nextStep</strong> — shown as an action arrow</li>
+    <li>Any <strong>producedAssets</strong> you listed</li>
+  </ul>
+  <p>Sessions on the <strong>active branch</strong> are shown at full opacity. If the operator forks the history ("Fork from here"), your session may appear at 65% opacity if it's on a non-active branch.</p>
+  <div class="callout info">
+    <span class="callout-icon">ℹ</span>
+    <div>Write your <code>outputSummary</code> as if someone will read it cold, months later. It's the permanent record of what happened in this session.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-agent">
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <h1>Agent Tab — Where You Come In</h1>
+  </div>
+  <p>The Agent tab is where the human operator generates briefs and pastes your results. This is the tab most relevant to your workflow.</p>
+
+  <h2>What Happens Before You Get the Brief</h2>
+  <p>Before generating a brief, ThreadOS checks for blocking conditions. If any of these are active, no brief is generated and nothing reaches you:</p>
+  <div class="field-grid">
+    <div class="field-row"><div class="field-key">NO_OBJECTIVE</div><div class="field-val">Project has no objective. Brief cannot be generated.</div></div>
+    <div class="field-row"><div class="field-key">RUN_PENDING</div><div class="field-val">A previous run is still open — your result hasn't been pasted yet.</div></div>
+    <div class="field-row"><div class="field-key">UNRESOLVED_MISMATCH</div><div class="field-val">The last session scored "Needs review" and hasn't been resolved.</div></div>
+  </div>
+
+  <h2>What Happens After You Return</h2>
+  <p>When the operator pastes your JSON response, ThreadOS runs the full verification pipeline:</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Schema validation</div>
+        <div class="step-desc">Checks required fields, minimum lengths, confidence bounds, and asset format.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">Keyword coverage diff</div>
+        <div class="step-desc">Extracts key terms from the instruction and checks how many appear in your <code>outputSummary</code>. This is 45% of your score.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <div class="step-title">Run ID chain check</div>
+        <div class="step-desc">Compares your returned <code>runId</code> to the one in the brief. A match = 100% on this signal (15% weight). A missing or wrong ID = 0%.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <div class="step-title">Composite score + verdict</div>
+        <div class="step-desc">Weighted score determines your verdict. Session is logged, inline decisions/tasks are merged, pending run is cleared.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-decisions">
+  <div class="section-header">
+    <span class="section-num">09</span>
+    <h1>Decisions Tab — What You Can Log</h1>
+  </div>
+  <p>You can add decisions to the project directly from your JSON response. These are permanently stored and appear in future briefs.</p>
+  <p>Log a decision when:</p>
+  <ul>
+    <li>You made an architectural or design choice not specified in the instruction</li>
+    <li>You chose between two approaches and the choice has downstream consequences</li>
+    <li>You encountered a constraint conflict and resolved it in a specific way</li>
+  </ul>
+  <pre><span class="str">"decisions"</span><span>: [
+  {
+    </span><span class="str">"title"</span><span>: </span><span class="str">"Use HMAC-SHA256 for webhook validation"</span><span>,     </span><span class="cmt">// required — short, specific</span>
+    </span><span class="str">"rationale"</span><span>: </span><span class="str">"Zendesk mandates this approach in their v2 docs."</span><span>,  </span><span class="cmt">// why</span>
+    </span><span class="str">"impact"</span><span>: </span><span class="str">"All webhook endpoints must use the validation middleware."</span>  <span class="cmt">// scope</span>
+  }
+]</span></pre>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-assets">
+  <div class="section-header">
+    <span class="section-num">10</span>
+    <h1>Assets Tab — What to List</h1>
+  </div>
+  <p>Assets in ThreadOS are files, prompts, specs, and outputs stored alongside the project. You don't interact with Assets directly, but you should <strong>list every file you create or modify</strong> in your <code>producedAssets</code> array — this makes them traceable in the session history.</p>
+  <div class="callout warn">
+    <span class="callout-icon">⚠</span>
+    <div>Always include file extensions in <code>producedAssets</code>. <code>"src/webhook"</code> generates a warning; <code>"src/webhook-handler.ts"</code> does not.</div>
+  </div>
+  <pre><span class="str">"producedAssets"</span><span>: [
+  </span><span class="str">"src/webhook-handler.ts"</span><span>,
+  </span><span class="str">"tests/webhook.test.ts"</span><span>,
+  </span><span class="str">"docs/webhook-architecture.md"</span>
+]</span></pre>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-tasks">
+  <div class="section-header">
+    <span class="section-num">11</span>
+    <h1>Tasks Tab — What You Can Create</h1>
+  </div>
+  <p>You can add tasks to the project from your JSON response. Tasks you create appear immediately in the Tasks tab and affect the project health score.</p>
+  <p>Create a task when:</p>
+  <ul>
+    <li>The instruction revealed work that needs to happen in a future session</li>
+    <li>You found a problem that needs to be tracked (use <code>"status": "blocked"</code>)</li>
+    <li>You want to ensure a follow-on step doesn't get lost</li>
+  </ul>
+  <pre><span class="str">"tasks"</span><span>: [
+  {
+    </span><span class="str">"title"</span><span>: </span><span class="str">"Load test inference service — must hit &lt;2s p95"</span><span>,
+    </span><span class="str">"status"</span><span>: </span><span class="str">"todo"</span><span>,         </span><span class="cmt">// todo | in_progress | blocked | done</span>
+    </span><span class="str">"owner"</span><span>: </span><span class="str">"Backend"</span><span>,       </span><span class="cmt">// optional</span>
+    </span><span class="str">"notes"</span><span>: </span><span class="str">"Use k6 or Locust. Pinecone retrieval must be included in the load path."</span>
+  }
+]</span></pre>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-handoffs">
+  <div class="section-header">
+    <span class="section-num">12</span>
+    <h1>Handoffs Tab — Receiving Context from Other Tools</h1>
+  </div>
+  <p>When an operator switches from another tool (e.g. Claude, ChatGPT) to Tasklet, they may send you a handoff packet. A handoff is a complete context block — treat it like an enriched brief.</p>
+  <p>A handoff contains:</p>
+  <ul>
+    <li><strong>Project context</strong> — same as the brief: objective, brief, constraints</li>
+    <li><strong>Current state</strong> — the most recent <code>outputSummary</code> from the previous agent</li>
+    <li><strong>Recent decisions</strong> — last 4 committed decisions</li>
+    <li><strong>Relevant assets</strong> — last 3 assets by name and type</li>
+    <li><strong>Exact next instruction</strong> — the <code>nextStep</code> from the last session</li>
+    <li><strong>Session template</strong> — same as a brief, to fill out and return</li>
+  </ul>
+  <div class="callout success">
+    <span class="callout-icon">✓</span>
+    <div>When you receive a handoff, always return a response using the <code>sessionTemplate</code> at the bottom of the handoff — the same format as a brief response. The runId in a handoff template may be null; use any unique string if the operator hasn't set one.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-risks">
+  <div class="section-header">
+    <span class="section-num">13</span>
+    <h1>Risks Tab — How You Affect Project Health</h1>
+  </div>
+  <p>The Risks tab runs automatic health checks on the project. Your output directly affects several of these:</p>
+  <div class="field-grid">
+    <div class="field-row"><div class="field-key">DRIFT warning</div><div class="field-val">Triggered after 2+ "Needs review" sessions. Write more literal output summaries that directly mirror the instruction's key terms.</div></div>
+    <div class="field-row"><div class="field-key">NO_HANDOFFS warning</div><div class="field-val">Triggered after 5+ sessions with no handoff. Not your responsibility, but mentioning it in <code>nextStep</code> can prompt the operator.</div></div>
+    <div class="field-row"><div class="field-key">Health score impact</div><div class="field-val">Each "Needs review" session −8 pts. Each verified session with confidence ≥0.7 contributes to the +10 bonus for high verification ratio.</div></div>
+  </div>
+  <div class="callout orange">
+    <span class="callout-icon">⚡</span>
+    <div>The single highest-impact thing you can do for project health: write an <code>outputSummary</code> that explicitly covers the key nouns and verbs from the instruction. ThreadOS's keyword diff is literal — if the instruction says "Pinecone retrieval" and your summary doesn't say "Pinecone", that term is counted as missed.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="verification">
+  <div class="section-header">
+    <span class="section-num">14</span>
+    <h1>Verification Scoring — Full Reference</h1>
+  </div>
+
+  <h2>The Four Signals</h2>
+  <div class="field-grid">
+    <div class="field-row"><div class="field-key">Coverage (45%)</div><div class="field-val">Key terms from the instruction found in your <code>outputSummary</code>. Stop words filtered. Exact substring match. More specific terms = more weight.</div></div>
+    <div class="field-row"><div class="field-key">Schema (30%)</div><div class="field-val">Required fields present, min/max lengths met, confidence in [0,1]. Each missing required field = −30 pts. Each too-short field = −15 pts.</div></div>
+    <div class="field-row"><div class="field-key">Run ID (15%)</div><div class="field-val">Your <code>runId</code> matches <code>brief.runId</code>. Match = 1.0, missing = 0.2, wrong = 0.0. Always echo exactly.</div></div>
+    <div class="field-row"><div class="field-key">Confidence (10%)</div><div class="field-val">Your self-reported <code>confidence</code> value used directly. If omitted, defaults to 0.75. Be honest — low confidence here is less damaging than a wrong runId.</div></div>
+  </div>
+
+  <h2>Verdict Thresholds</h2>
+  <div class="verdict-grid">
+    <div class="verdict green">
+      <div class="verdict-label">✓ Delivered</div>
+      <div class="verdict-score">≥ 72%</div>
+      <div class="verdict-desc">Composite score. Project continues.</div>
+    </div>
+    <div class="verdict yellow">
+      <div class="verdict-label">⚠ Partially done</div>
+      <div class="verdict-score">40–71%</div>
+      <div class="verdict-desc">Review warnings. Project can continue.</div>
+    </div>
+    <div class="verdict red">
+      <div class="verdict-label">✗ Needs review</div>
+      <div class="verdict-score">&lt; 40%</div>
+      <div class="verdict-desc">Blocks the next brief. Operator must resolve.</div>
+    </div>
+  </div>
+
+  <h2>How to Score High</h2>
+  <ul>
+    <li><strong>Echo the exact key terms from the instruction</strong> in your <code>outputSummary</code>. If the instruction says "Pinecone retrieval", your summary should say "Pinecone retrieval".</li>
+    <li><strong>Always include all three required fields</strong> with enough content. A one-word <code>changesMade</code> will trigger a schema penalty.</li>
+    <li><strong>Always echo the runId exactly</strong>. This is the easiest 15% to earn.</li>
+    <li><strong>Report confidence honestly</strong>. A confident 0.85 on a solid response outperforms a dishonest 1.0 on a shaky one — because the human will re-check and notice the mismatch.</li>
+  </ul>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="examples">
+  <div class="section-header">
+    <span class="section-num">15</span>
+    <h1>Full Examples</h1>
+  </div>
+
+  <h2>Example A — High-Score Response (Delivered)</h2>
+  <p>Instruction: <em>"Implement GPT-4o inference service with Pinecone retrieval and verify latency is under 2 seconds."</em></p>
+  <pre><span class="key">{
+  </span><span class="str">"runId"</span><span>: </span><span class="str">"run_m8xk2_a4f1"</span><span>,
+  </span><span class="str">"tool"</span><span>: </span><span class="str">"Tasklet"</span><span>,
+  </span><span class="str">"outputSummary"</span><span>: </span><span class="str">"GPT-4o inference service implemented with Pinecone retrieval. Embedding pipeline uses text-embedding-3-large. p95 latency measured at 1.8 seconds — under the 2-second constraint. Full integration test suite added."</span><span>,
+  </span><span class="str">"changesMade"</span><span>: </span><span class="str">"Created src/inference-service.ts, tests/inference.test.ts. Pinecone index reindexed with text-embedding-3-large."</span><span>,
+  </span><span class="str">"nextStep"</span><span>: </span><span class="str">"Build the Zendesk escalation routing engine — implement rules that escalate to human when confidence < 0.5 or ticket tags include 'billing' or 'legal'."</span><span>,
+  </span><span class="str">"producedAssets"</span><span>: [</span><span class="str">"src/inference-service.ts"</span><span>, </span><span class="str">"tests/inference.test.ts"</span><span>],
+  </span><span class="str">"confidence"</span><span>: </span><span class="num">0.91</span>
+<span class="key">}</span></pre>
+  <div class="callout success">
+    <span class="callout-icon">✓</span>
+    <div>Coverage: "GPT-4o", "Pinecone", "retrieval", "latency", "2 seconds" all present. Schema: all required fields, appropriate lengths. RunId: echoed. Confidence: 0.91. Expected composite: ~88%.</div>
+  </div>
+
+  <h2>Example B — Low-Score Response (Needs Review)</h2>
+  <p>Same instruction, poor response:</p>
+  <pre><span class="key">{
+  </span><span class="str">"runId"</span><span>: </span><span class="num">null</span><span>,                                        </span><span class="cmt">// ✗ runId not echoed → 0% on this signal</span>
+  </span><span class="str">"tool"</span><span>: </span><span class="str">"Tasklet"</span><span>,
+  </span><span class="str">"outputSummary"</span><span>: </span><span class="str">"Built the service. It works."</span><span>,         </span><span class="cmt">// ✗ too short, no key terms covered</span>
+  </span><span class="str">"changesMade"</span><span>: </span><span class="str">"Done."</span><span>,                                  </span><span class="cmt">// ✗ too short → schema penalty</span>
+  </span><span class="str">"nextStep"</span><span>: </span><span class="str">"Continue."</span>                                 <span class="cmt">// ✗ vague → schema warning</span>
+<span class="key">}</span></pre>
+  <div class="callout error">
+    <span class="callout-icon">✗</span>
+    <div>Coverage: 0% (no key terms). Schema: changesMade too short (−15), nextStep vague (−10). RunId: missing (0.2). Expected composite: ~18% → Needs Review → blocks next brief.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="errors">
+  <div class="section-header">
+    <span class="section-num">16</span>
+    <h1>Common Errors & How to Avoid Them</h1>
+  </div>
+
+  <table class="schema-table">
+    <thead>
+      <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>runId: null</td>
+        <td>Forgot to replace the null placeholder</td>
+        <td>Copy <code>brief.runId</code> string exactly into <code>sessionTemplate.runId</code></td>
+      </tr>
+      <tr>
+        <td>changesMade too short</td>
+        <td>One-word or vague change description</td>
+        <td>Name the specific files, states, or systems that changed. Min 10 chars.</td>
+      </tr>
+      <tr>
+        <td>Low coverage score</td>
+        <td>Output summary doesn't mention instruction keywords</td>
+        <td>Re-read the instruction. Mirror its key nouns and verbs in your outputSummary.</td>
+      </tr>
+      <tr>
+        <td>Vague nextStep</td>
+        <td>"Continue" / "Keep going" / "Do more"</td>
+        <td>Write the specific next command. Name the exact tool, file, or outcome.</td>
+      </tr>
+      <tr>
+        <td>Invalid JSON</td>
+        <td>Trailing comma, unescaped quote, missing bracket</td>
+        <td>Validate JSON before returning. Use a linter if available.</td>
+      </tr>
+      <tr>
+        <td>Missing producedAssets extension</td>
+        <td>"src/webhook" instead of "src/webhook-handler.ts"</td>
+        <td>Always include file extension in every asset path.</td>
+      </tr>
+      <tr>
+        <td>confidence out of range</td>
+        <td>confidence: 95 instead of 0.95</td>
+        <td>Confidence is always 0.0–1.0, never 0–100.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px;">
+    <div style="width: 28px; height: 28px; background: var(--orange); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <div>
+      <div style="font-size: 12px; font-weight: 700; color: var(--text);">ThreadOS v5.0 — Tasklet Agent Manual</div>
+      <div style="font-size: 11px; color: var(--muted); font-family: var(--mono);">Inkluso, Inc. — Internal Use Only</div>
+    </div>
+  </div>
+</div>
+
+</main>
+</div>
+
+<script>
+  // Active nav highlight on scroll
+  const sections = document.querySelectorAll('.section');
+  const links = document.querySelectorAll('.sidenav a');
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = document.querySelector(`.sidenav a[href="#${e.target.id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { threshold: 0.3 });
+  sections.forEach(s => obs.observe(s));
+</script>
+</body>
+</html>
