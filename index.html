@@ -1471,7 +1471,7 @@ function SessionsTab({project,activeBranch}) {
 
       {/* Verification summary */}
       {activeBranch.length>0&&<div style={{display:'flex',gap:5,marginBottom:10,flexWrap:'wrap'}}>
-        {[['verified','Delivered',C.green],['partial','Partial',C.yellow],['mismatch','Needs review',C.red],['unverified','Not checked',C.faint]].map(([status,label,col])=>{
+        {[['verified','Delivered',C.green],['partial','Partial',C.yellow],['mismatch','Needs review',C.red],['unverified','Unverified',C.faint]].map(([status,label,col])=>{
           const n=activeBranch.filter(s=>s.verification?.status===status).length;
           if(!n)return null;
           return<span key={status} style={{fontSize:10,fontWeight:600,background:`${col}12`,color:col,border:`1px solid ${col}25`,padding:'2px 8px',borderRadius:4}}>{n} {label}</span>;
@@ -1963,7 +1963,7 @@ function RisksTab({project,activeBranch}) {
             <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:5}}>
               <span style={{fontSize:9,...MONO,fontWeight:700,background:sev.bg,color:sev.c,padding:'1px 6px',borderRadius:3,border:`1px solid ${sev.border}`}}>{(r.severity||r.level||'').toUpperCase()}</span>
               {r.source==='ai'&&<span style={{fontSize:9,...MONO,color:accent,background:`${accent}12`,border:`1px solid ${accent}20`,padding:'1px 5px',borderRadius:3}}>AI</span>}
-              <span style={{fontSize:12,fontWeight:600,color:C.text,flex:1,...MONO}}>{r.code||(r.type||'').replace(/_/g,' ')}</span>
+              <span style={{fontSize:12,fontWeight:600,color:C.text,flex:1,...MONO}}>{(r.code||r.type||'').split('_').map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ')}</span>
               <button onClick={()=>setDismissed(p=>new Set([...p,r.id||r.code]))} style={{fontSize:10,color:C.faint,background:'transparent',border:'none',cursor:'pointer',...MONO}}>dismiss</button>
             </div>
             <div style={{fontSize:12,color:C.muted,lineHeight:1.55,marginBottom:(r.fix||r.recommendation)?6:0}}>{r.msg||r.message}</div>
