@@ -1,0 +1,2198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>ThreadOS — Verify what your agents actually did</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{height:100%;background:#080810;color:#d4d4dc;font-family:'DM Sans',system-ui,sans-serif;font-size:14px;}
+input,textarea,select,button{font-family:inherit;font-size:inherit;}
+input::placeholder,textarea::placeholder{color:#2e2e40;}
+select option{background:#111118;}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#1e1e2a;border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:#2e2e3e;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toastIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes gate{0%{transform:translateX(-3px)}50%{transform:translateX(3px)}100%{transform:translateX(0)}}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useContext,createContext,useRef,useCallback,useMemo,useReducer}=React;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════
+const VERSION = '5.0';
+const AI_MODEL = 'claude-sonnet-4-20250514';
+
+// Storage keys — versioned to avoid collision with older builds
+const K = {
+  projects:   'tos_v4_projects',
+  run:        'tos_v4_run',
+  apiKey:     'tos_v4_apikey',
+  accent:     'tos_v4_accent',
+};
+
+// Loop states (deterministic core loop)
+const LOOP = {
+  IDLE:      'IDLE',      // No active run
+  BRIEFED:   'BRIEFED',  // Brief generated, waiting for agent
+  SUBMITTED: 'SUBMITTED',// Result pasted, validating
+  VERIFIED:  'VERIFIED', // Passed schema + diff
+  FAILED:    'FAILED',   // Schema failure or mismatch
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STORAGE ADAPTER  — swap localStorage for Supabase/Postgres by replacing this
+// ═══════════════════════════════════════════════════════════════════════════
+const Storage = {
+  get:    (k, fallback=null) => { try { const v=localStorage.getItem(k); return v==null?fallback:JSON.parse(v); } catch { return fallback; } },
+  set:    (k, v)             => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) { console.error('Storage.set',k,e); } },
+  remove: (k)                => { try { localStorage.removeItem(k); } catch {} },
+  // Future hook: async remote sync
+  // sync: async (k, v) => await supabase.from('state').upsert({key:k, val:v}),
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════
+const genId  = () => Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
+const now    = () => new Date().toISOString();
+const fmtAgo = s => { if(!s)return'—'; const d=Date.now()-new Date(s).getTime(); if(d<60000)return'just now'; if(d<3600000)return`${Math.floor(d/60000)}m`; if(d<86400000)return`${Math.floor(d/3600000)}h`; if(d<604800000)return`${Math.floor(d/86400000)}d`; return new Date(s).toLocaleDateString(); };
+const clamp  = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+const touch  = p => ({...p, updatedAt:now()});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AGENT RETURN SCHEMA  — the contract between ThreadOS and any AI agent
+// ═══════════════════════════════════════════════════════════════════════════
+const SCHEMA = {
+  required: ['outputSummary','changesMade','nextStep'],
+  typed: {
+    runId:         'string',
+    tool:          'string',
+    outputSummary: 'string',
+    changesMade:   'string',
+    nextStep:      'string',
+    confidence:    'number',    // 0–1, self-reported by agent
+    producedAssets:['string'], // array of filenames/paths
+    decisions:     'array',
+    tasks:         'array',
+  },
+  minLen: {
+    outputSummary: 20,
+    changesMade:   10,
+    nextStep:      10,
+  },
+  maxLen: {
+    outputSummary: 2000,
+    nextStep:      400,
+  },
+};
+
+// Validate agent return against SCHEMA — returns { valid, errors, warnings, score }
+function validateSchema(data) {
+  const errors = [], warnings = [];
+  let score = 100;
+
+  // Required fields
+  for (const f of SCHEMA.required) {
+    if (!data[f] || !String(data[f]).trim()) {
+      const labels = { outputSummary:'output summary', changesMade:'what changed', nextStep:'next step' };
+      errors.push(`The agent didn't include a ${labels[f]||f} in its response`);
+      score -= 30;
+    }
+  }
+
+  // Min length
+  for (const [f, min] of Object.entries(SCHEMA.minLen)) {
+    if (data[f] && String(data[f]).trim().length < min) {
+      const labels = { outputSummary:'output summary', changesMade:'what changed', nextStep:'next step' };
+      errors.push(`The ${labels[f]||f} is too short to be useful (needs at least ${min} characters)`);
+      score -= 15;
+    }
+  }
+
+  // Max length
+  for (const [f, max] of Object.entries(SCHEMA.maxLen)) {
+    if (data[f] && String(data[f]).trim().length > max) {
+      const labels = { outputSummary:'output summary', nextStep:'next step' };
+      warnings.push(`The ${labels[f]||f} is very long — a more focused response is easier to verify`);
+      score -= 5;
+    }
+  }
+
+  // Confidence bounds
+  if (data.confidence != null) {
+    if (typeof data.confidence !== 'number' || data.confidence < 0 || data.confidence > 1) {
+      errors.push(`Confidence should be a number between 0 and 1 (the agent returned: ${data.confidence})`);
+      score -= 10;
+    }
+  } else {
+    warnings.push('The agent didn't report confidence — consider asking it to rate its certainty');
+  }
+
+  // nextStep quality heuristics
+  if (data.nextStep) {
+    const ns = data.nextStep.trim().toLowerCase();
+    const vague = ['continue', 'proceed', 'keep going', 'do more', 'finish', 'work on it'];
+    if (vague.some(v => ns === v || ns.startsWith(v + ' '))) {
+      warnings.push('The next step is vague — a good next step names exactly what to do and how');
+      score -= 10;
+    }
+    if (ns.length > 0 && !ns.match(/[a-z]/)) {
+      warnings.push('The next step doesn't seem to contain an action — it should describe what to do');
+      score -= 5;
+    }
+  }
+
+  // producedAssets format check
+  if (data.producedAssets) {
+    const assets = Array.isArray(data.producedAssets) ? data.producedAssets : [data.producedAssets];
+    assets.forEach(a => {
+      if (typeof a === 'string' && !a.match(/\.\w{1,6}$/) && !a.match(/^https?:\/\//)) {
+        warnings.push(`"${a.slice(0,40)}" doesn't look like a filename — include the extension so it's clear what was created`);
+      }
+    });
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    schemaScore: clamp(score, 0, 100),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VERIFICATION ENGINE v2  — multi-signal scoring
+// ═══════════════════════════════════════════════════════════════════════════
+const STOP = new Set(['a','an','the','and','or','but','in','on','at','to','for','of','with','by','is','are','was','were','be','been','have','has','do','does','did','will','would','could','should','that','this','it','they','then','when','if','as','so','all','any','not','use','make','new','each','from','get','set','run','build','into','via','per','also','both']);
+
+function extractTerms(text) {
+  return [...new Set(
+    text.toLowerCase()
+      .replace(/[^a-z0-9\s]/g,' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !STOP.has(w))
+  )].slice(0, 24);
+}
+
+function verifyResult({ instruction='', outputSummary='', schemaResult, confidence=null, runId=null, expectedRunId=null }) {
+  const terms = extractTerms(instruction);
+  const summaryLower = outputSummary.toLowerCase();
+  const matched = terms.filter(t => summaryLower.includes(t));
+  const missing  = terms.filter(t => !summaryLower.includes(t));
+  const coverage = terms.length > 0 ? matched.length / terms.length : 0;
+
+  // Run ID chain check
+  let runIdStatus = 'no_pending';
+  let runIdScore  = 0.5;
+  if (expectedRunId) {
+    if (!runId)              { runIdStatus = 'missing';    runIdScore = 0.2; }
+    else if (runId === expectedRunId) { runIdStatus = 'matched';    runIdScore = 1.0; }
+    else                     { runIdStatus = 'mismatched'; runIdScore = 0.0; }
+  }
+
+  // Schema score (0–1)
+  const schemaSig = schemaResult ? schemaResult.schemaScore / 100 : 0.5;
+
+  // Self-reported confidence bonus/penalty
+  const confSig = (confidence != null) ? confidence : 0.75;
+
+  // Weighted composite
+  const weights = { coverage: 0.45, schema: 0.30, runId: 0.15, confidence: 0.10 };
+  const composite = clamp(
+    coverage   * weights.coverage +
+    schemaSig  * weights.schema  +
+    runIdScore * weights.runId   +
+    confSig    * weights.confidence,
+    0, 1
+  );
+
+  const status = composite >= 0.72 ? 'verified'
+               : composite >= 0.40 ? 'partial'
+               :                     'mismatch';
+
+  return {
+    status, composite: Math.round(composite * 100) / 100,
+    coverage: Math.round(coverage * 100) / 100,
+    matched, missing, terms,
+    runIdStatus, runId, expectedRunId,
+    schemaScore: schemaResult?.schemaScore ?? null,
+    confidence,
+    errors:   schemaResult?.errors   ?? [],
+    warnings: schemaResult?.warnings ?? [],
+    checkedAt: now(),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OPERATIONAL RISK GATES  — blocking checks before brief generation
+// ═══════════════════════════════════════════════════════════════════════════
+function checkRiskGates(project, pendingRun) {
+  const gates = [];
+  const sessions = project.sessions;
+  const latest = sessions[sessions.length - 1];
+
+  // HARD BLOCKS
+  if (!project.objective || project.objective.trim().length < 15)
+    gates.push({ level: 'BLOCK', code: 'NO_OBJECTIVE',
+      msg: "This project doesn't have an objective yet. Without one, there's nothing to tell the agent — it won't know what it's working toward.",
+      fix: 'Go to the Brief tab and write a 1–2 sentence objective.' });
+
+  if (pendingRun && pendingRun.projectId === project.id)
+    gates.push({ level: 'BLOCK', code: 'RUN_PENDING',
+      msg: "There's already an active run waiting for a result. Log what the agent returned before starting a new one.",
+      fix: 'Scroll down to "Log what the agent returned" and paste the result.' });
+
+  if (latest?.verification?.status === 'mismatch') {
+    gates.push({ level: 'BLOCK', code: 'UNRESOLVED_MISMATCH',
+      msg: "The last session didn't match what was asked. Sending another brief before resolving this means you might be building on a shaky foundation.",
+      fix: 'Review the last session below. Edit it if the agent actually did the work, or acknowledge the mismatch before continuing.' });
+  }
+
+  // SOFT WARNINGS
+  if (project.constraints.length === 0)
+    gates.push({ level: 'WARN', code: 'NO_CONSTRAINTS',
+      msg: "No constraints are set. Agents given open-ended briefs tend to go off in unexpected directions.",
+      fix: 'Add 2–3 constraints in the Brief tab — things the agent should never do.' });
+
+  if (sessions.length > 5 && project.handoffs.length === 0)
+    gates.push({ level: 'WARN', code: 'NO_HANDOFFS',
+      msg: `${sessions.length} sessions in and no handoff packets generated. If you switch tools, you'll lose context.`,
+      fix: 'Go to the Handoffs tab and generate a context packet for your next agent.' });
+
+  const staleDays = latest ? (Date.now() - new Date(latest.createdAt).getTime()) / 86400000 : null;
+  if (staleDays != null && staleDays > 10)
+    gates.push({ level: 'WARN', code: 'STALE',
+      msg: `It's been ${Math.round(staleDays)} days since the last session. Things may have changed. Take a moment to re-read the context before sending a new brief.`,
+      fix: 'Scan the Overview and last session to make sure the objective still makes sense.' });
+
+  const repeatedMismatches = sessions.filter(s => s.verification?.status === 'mismatch').length;
+  if (repeatedMismatches >= 2)
+    gates.push({ level: 'WARN', code: 'DRIFT',
+      msg: `${repeatedMismatches} sessions came back without matching what was asked. The agent may be interpreting instructions differently than expected.`,
+      fix: 'Try being more literal in your instructions. Describe the exact output you expect, not just the goal.' });
+
+  return gates;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROJECT HEALTH
+// ═══════════════════════════════════════════════════════════════════════════
+function projectHealth(p) {
+  const sessions = p.sessions, latest = sessions[sessions.length - 1];
+  let score = 100; const notes = [];
+  if (!p.objective || p.objective.length < 15) { score -= 25; notes.push('No objective'); }
+  if (sessions.length === 0)                   { score -= 20; notes.push('No sessions'); }
+  if (latest && !latest.nextStep)              { score -= 15; notes.push('Missing next step'); }
+  if (p.constraints.length === 0)              { score -= 10; notes.push('No constraints'); }
+  const mism = sessions.filter(s => s.verification?.status === 'mismatch').length;
+  if (mism > 0) { score -= mism * 8; notes.push(`${mism} mismatch`); }
+  const blk = p.tasks.filter(t => t.status === 'blocked').length;
+  if (blk > 0) { score -= blk * 5; notes.push(`${blk} blocked`); }
+  if (sessions.length > 4 && p.handoffs.length === 0) { score -= 8; notes.push('No handoffs'); }
+  const daysSince = latest ? (Date.now()-new Date(latest.createdAt).getTime())/86400000 : 999;
+  if (daysSince > 10) { score -= 12; notes.push(`${Math.round(daysSince)}d stale`); }
+  const verifiedRatio = sessions.length > 0 ? sessions.filter(s => s.verification?.status === 'verified').length / sessions.length : 0;
+  if (verifiedRatio > 0.7) score += 10;
+  if (p.decisions.length >= 2) score += 5;
+  return { score: clamp(Math.round(score), 0, 100), notes };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BRANCHING  — sessions form a tree, not a flat list
+// ═══════════════════════════════════════════════════════════════════════════
+// Session shape: { id, parentId, branchLabel, ...rest }
+// Active branch = path from root to latest session on selected branch
+
+function buildSessionTree(sessions) {
+  const byId = Object.fromEntries(sessions.map(s => [s.id, s]));
+  const children = {};
+  for (const s of sessions) {
+    const pid = s.parentId || null;
+    if (!children[pid]) children[pid] = [];
+    children[pid].push(s);
+  }
+  return { byId, children };
+}
+
+function getActiveBranch(sessions, activeBranchTip) {
+  if (!sessions.length) return [];
+  const tree = buildSessionTree(sessions);
+  // Walk back from tip to root
+  const tip = activeBranchTip
+    ? sessions.find(s => s.id === activeBranchTip)
+    : sessions[sessions.length - 1];
+  if (!tip) return sessions; // fallback: flat list
+  const path = [];
+  let cur = tip;
+  while (cur) {
+    path.unshift(cur);
+    cur = cur.parentId ? tree.byId[cur.parentId] : null;
+  }
+  return path;
+}
+
+function getBranchTips(sessions) {
+  // A tip is a session with no children
+  const tree = buildSessionTree(sessions);
+  return sessions.filter(s => !(tree.children[s.id]?.length > 0));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HANDOFF BUILDER
+// ═══════════════════════════════════════════════════════════════════════════
+function buildHandoff(project, targetTool, branchSessions) {
+  const latest = branchSessions[branchSessions.length - 1];
+  return {
+    id: genId(),
+    targetTool,
+    schema_version: '2.0',
+    project: {
+      title:       project.title,
+      objective:   project.objective,
+      coreBrief:   project.coreBrief,
+      currentPhase:project.currentPhase,
+      constraints: project.constraints,
+    },
+    context: {
+      currentState:    latest?.outputSummary || 'No sessions yet.',
+      recentDecisions: project.decisions.slice(-4).map(d => ({ title: d.title, rationale: d.rationale })),
+      relevantAssets:  project.assets.slice(-3).map(a => ({ name: a.name, type: a.type })),
+      sessionCount:    project.sessions.length,
+    },
+    instruction: {
+      exactNext:       latest?.nextStep || 'Define the next step.',
+      constraints:     project.constraints,
+    },
+    sessionTemplate: {
+      _comment: 'Fill this out and paste it back into ThreadOS → Agent tab → Log Result',
+      runId:          null,
+      tool:           targetTool,
+      outputSummary:  '',
+      changesMade:    '',
+      nextStep:       '',
+      producedAssets: [],
+      confidence:     null,
+    },
+    generatedAt: now(),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AI LAYER  (all calls go through callClaude — never expose key elsewhere)
+// ═══════════════════════════════════════════════════════════════════════════
+class ApiKeyError extends Error { constructor(msg='Add your Anthropic API key in Settings.') { super(msg); this.code='NO_KEY'; } }
+
+async function callClaude(apiKey, system, user, maxTokens=800) {
+  if (!apiKey) throw new ApiKeyError();
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({ model: AI_MODEL, max_tokens: maxTokens, system, messages: [{ role:'user', content:user }] }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || 'API error');
+  return data.content?.[0]?.text || '';
+}
+
+function parseAIJson(raw) {
+  const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+  return JSON.parse(clean);
+}
+
+const AI = {
+  async fillBrief(key, title, context) {
+    const s = 'You are a project strategist. Respond ONLY with valid JSON, no markdown.';
+    const u = `Project: "${title}"\nContext: ${context||'none'}\n\nReturn: {"objective":"1-2 sentence goal","coreBrief":"3-4 sentence background","constraints":["c1","c2","c3"],"currentPhase":"phase name","toolStack":["Tool1"]}`;
+    return parseAIJson(await callClaude(key, s, u, 500));
+  },
+  async analyzeRisks(key, project, branchSessions) {
+    const s = 'You are a project health analyst for AI workflows. Respond ONLY with a JSON array, no markdown.';
+    const sessions = branchSessions.slice(-3).map(s => `[${s.tool}] ${s.outputSummary} → ${s.nextStep||'?'} (${s.verification?.status})`).join('\n');
+    const u = `Project: "${project.title}"\nObjective: ${project.objective||'unset'}\nRecent sessions:\n${sessions||'none'}\n\nReturn max 4 risks:\n[{"type":"slug","message":"specific message","severity":"high|medium|low","recommendation":"action"}]`;
+    const flags = parseAIJson(await callClaude(key, s, u, 600));
+    return flags.map(f => ({...f, id:genId(), createdAt:now(), source:'ai'}));
+  },
+  async suggestNext(key, project, branchSessions) {
+    const s = 'You are an AI workflow coordinator. Reply with ONE concise instruction, plain text only.';
+    const latest = branchSessions[branchSessions.length - 1];
+    const u = `Project: "${project.title}"\nObjective: ${project.objective}\nPhase: ${project.currentPhase||'?'}\nConstraints: ${project.constraints.join('; ')||'none'}\nLast output: ${latest?.outputSummary||'none'}\nLast next step: ${latest?.nextStep||'none'}\n\nBest next instruction:`;
+    return (await callClaude(key, s, u, 200)).trim();
+  },
+  async critiqueInstruction(key, instruction, project) {
+    const s = 'You are a quality reviewer for AI agent instructions. Respond ONLY with valid JSON.';
+    const u = `Instruction: "${instruction}"\nConstraints: ${project.constraints.join('; ')||'none'}\nObjective: ${project.objective||'unset'}\n\nReturn: {"score":0-100,"issues":["issue"],"improved":"better version","verdict":"one sentence"}`;
+    return parseAIJson(await callClaude(key, s, u, 450));
+  },
+  async fillSession(key, project, prompt, partial) {
+    const s = 'You are an AI workflow logger. Respond ONLY with valid JSON.';
+    const u = `Project: "${project.title}"\nObjective: ${project.objective||'?'}\nTool: ${partial.tool||'?'}\nPrompt: ${prompt||'(none)'}\n\nFill missing:\n{"outputSummary":"what was accomplished","changesMade":"what changed","nextStep":"specific next instruction","confidence":0.0-1.0}`;
+    return parseAIJson(await callClaude(key, s, u, 350));
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHARE LINKS  (project encoded in URL hash, UTF-8 safe)
+// ═══════════════════════════════════════════════════════════════════════════
+function shareEncode(project) {
+  try {
+    const payload = { v:4, p:{ title:project.title, objective:project.objective, status:project.status, coreBrief:project.coreBrief, constraints:project.constraints, toolStack:project.toolStack, currentPhase:project.currentPhase, decisions:project.decisions, sessions:project.sessions.map(s=>({...s})), assets:project.assets.map(a=>({...a,content:(a.content||'').slice(0,600)})), tasks:project.tasks, handoffs:[], notes:project.notes, createdAt:project.createdAt } };
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+    return btoa(bin);
+  } catch { return null; }
+}
+function shareDecode(enc) {
+  try {
+    const bin = atob(enc); const bytes = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+    const p = JSON.parse(new TextDecoder().decode(bytes));
+    return p?.v===4 ? p.p : null;
+  } catch { return null; }
+}
+function getIncomingShare() {
+  if (!location.hash.startsWith('#share=')) return null;
+  return shareDecode(location.hash.slice(7));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEED DATA
+// ═══════════════════════════════════════════════════════════════════════════
+function makeSeed() {
+  const ago = d => new Date(Date.now()-d*86400000).toISOString();
+  const s1id = genId(), s2id = genId(), s3id = genId();
+  return [{
+    id: genId(), title: 'AI Support Bot',
+    objective: 'Build a multi-channel AI support bot with 85%+ Tier-1 resolution using GPT-4o and a Pinecone knowledge base.',
+    status: 'active', coreBrief: 'Integrates with Zendesk v2, handles email and chat, escalates complex issues. Uses Pinecone for KB retrieval and GPT-4o for inference.',
+    constraints: ['Zendesk API v2 only','Response latency < 2 seconds','No PII persisted beyond session'],
+    toolStack: ['Claude','ChatGPT','Cursor'], currentPhase: 'Backend Integration',
+    notes: '',
+    decisions: [
+      { id:genId(), title:'GPT-4o as primary inference engine', rationale:'Lower latency and better instruction-following than GPT-4.', impact:'All inference routes through GPT-4o.', createdAt:ago(8) }
+    ],
+    sessions: [
+      { id:s1id, parentId:null, tool:'ChatGPT', prompt:'Design the 3-tier system architecture.',
+        outputSummary:'Three-tier architecture defined: intake (Zendesk webhook), inference (GPT-4o + Pinecone retrieval), routing (escalation rules engine). Architecture documented in architecture-v1.md.',
+        producedAssets:['architecture-v1.md'], changesMade:'Core architecture documented and agreed.', nextStep:'Build Zendesk webhook handler with HMAC-SHA256 validation and idempotency keys',
+        createdAt:ago(12), confidence:0.88,
+        verification:{ status:'verified', composite:0.81, coverage:0.78, matched:['architecture','zendesk','inference','routing'], missing:[], terms:['architecture','webhook','zendesk','inference','routing'], runIdStatus:'no_pending', schemaScore:95, errors:[], warnings:[], checkedAt:ago(12) }},
+      { id:s2id, parentId:s1id, tool:'Claude', prompt:'Write Zendesk webhook handler with HMAC-SHA256 validation.',
+        outputSummary:'Complete webhook handler built: HMAC-SHA256 validation, idempotency keys, retry logic, full test suite (18 tests, 100% pass). Deployed to staging environment.',
+        producedAssets:['src/webhook-handler.ts','tests/webhook.test.ts'], changesMade:'Zendesk integration complete. Tests passing in CI.', nextStep:'Implement GPT-4o inference service with Pinecone retrieval and fallback to keyword search',
+        createdAt:ago(6), confidence:0.92,
+        verification:{ status:'verified', composite:0.87, coverage:0.85, matched:['webhook','handler','hmac','validation','tests'], missing:[], terms:['webhook','handler','hmac','validation','tests'], runIdStatus:'matched', schemaScore:100, errors:[], warnings:[], checkedAt:ago(6) }},
+      { id:s3id, parentId:s2id, tool:'Cursor', prompt:'Build the GPT-4o inference service with Pinecone retrieval.',
+        outputSummary:'Inference service scaffolded. Pinecone client connected but retrieval quality is low — embeddings need reindexing. GPT-4o calls working. Latency at 2.3s (above target).',
+        producedAssets:['src/inference-service.ts'], changesMade:'Service created but not production-ready. Latency issue identified.', nextStep:'Reindex Pinecone embeddings using text-embedding-3-large and re-test latency — must hit <2s before merging',
+        createdAt:ago(1), confidence:0.61,
+        verification:{ status:'partial', composite:0.62, coverage:0.58, matched:['inference','pinecone','retrieval'], missing:['latency'], terms:['inference','pinecone','retrieval','latency','gpt4o'], runIdStatus:'no_pending', schemaScore:90, errors:[], warnings:['latency target not confirmed'], checkedAt:ago(1) }},
+    ],
+    assets: [
+      { id:genId(), name:'architecture-v1.md', type:'doc', content:'# System Architecture\n\n## Three-Tier Design\n\n**Intake** — Zendesk webhook (HMAC validated)\n**Inference** — GPT-4o + Pinecone retrieval\n**Routing** — Escalation rules engine', createdAt:ago(12) }
+    ],
+    handoffs: [], tasks: [
+      { id:genId(), title:'Reindex Pinecone embeddings', status:'in_progress', owner:'ML', notes:'Use text-embedding-3-large', createdAt:ago(1) },
+      { id:genId(), title:'Zendesk webhook', status:'done', owner:'Backend', notes:'Deployed to staging', createdAt:ago(6) },
+      { id:genId(), title:'Load test inference service', status:'todo', owner:'Backend', notes:'Must hit <2s p95', createdAt:ago(1) },
+    ],
+    activeBranchTip: s3id,
+    createdAt:ago(14), updatedAt:ago(1),
+  }];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STORE
+// ═══════════════════════════════════════════════════════════════════════════
+const StoreCtx = createContext(null);
+const useStore = () => useContext(StoreCtx);
+
+function useAppStore() {
+  const [projects, setProjects] = useState(() => {
+    const p = Storage.get(K.projects);
+    if (p && Array.isArray(p) && p.length) return p;
+    const seed = makeSeed(); Storage.set(K.projects, seed); return seed;
+  });
+  const [activeId,  setActiveId]  = useState(() => Storage.get(K.projects)?.[0]?.id || null);
+  const [pendingRun,setPendingRun] = useState(() => Storage.get(K.run));
+  const [apiKey,    setApiKeyState]= useState(() => localStorage.getItem(K.apiKey) || '');
+  const [accent,    setAccentState]= useState(() => localStorage.getItem(K.accent) || '#f97316');
+  const [toasts,    setToasts]     = useState([]);
+  const [loopState, setLoopState]  = useState(() => Storage.get(K.run) ? LOOP.BRIEFED : LOOP.IDLE);
+
+  // Persist
+  useEffect(() => { Storage.set(K.projects, projects); }, [projects]);
+  useEffect(() => {
+    if (pendingRun) Storage.set(K.run, pendingRun);
+    else Storage.remove(K.run);
+  }, [pendingRun]);
+
+  const toast = useCallback((msg, type='info', dur=3500) => {
+    const id = genId();
+    setToasts(p => [...p, {id, msg, type}]);
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), dur);
+  }, []);
+
+  const dismissToast = useCallback(id => setToasts(p => p.filter(t => t.id !== id)), []);
+
+  const mutate = useCallback(fn => setProjects(fn), []);
+
+  const active = useMemo(() => projects.find(p => p.id === activeId) || null, [projects, activeId]);
+
+  const activeBranch = useMemo(() => {
+    if (!active) return [];
+    return getActiveBranch(active.sessions, active.activeBranchTip);
+  }, [active]);
+
+  // ── API key (stored plaintext in localStorage — acceptable for BYOK/internal)
+  const saveApiKey = useCallback(k => {
+    const key = k.trim();
+    localStorage.setItem(K.apiKey, key);
+    setApiKeyState(key);
+    toast('API key saved');
+    return key;
+  }, [toast]);
+
+  const setAccent = useCallback(c => {
+    localStorage.setItem(K.accent, c);
+    setAccentState(c);
+  }, []);
+
+  // ── Projects
+  const createProject = useCallback(({ title, objective='', toolStack=[], status='active' }) => {
+    const p = { id:genId(), title:title.trim(), objective, status, coreBrief:'', constraints:[], toolStack, currentPhase:'', notes:'', decisions:[], sessions:[], assets:[], handoffs:[], tasks:[], activeBranchTip:null, createdAt:now(), updatedAt:now() };
+    setProjects(prev => [p, ...prev]);
+    setActiveId(p.id);
+    return p;
+  }, []);
+
+  const updateProject = useCallback((id, changes) => {
+    mutate(ps => ps.map(p => p.id === id ? touch({...p, ...changes}) : p));
+  }, [mutate]);
+
+  const deleteProject = useCallback(id => {
+    mutate(ps => ps.filter(p => p.id !== id));
+    setActiveId(prev => prev === id ? (projects.find(p => p.id !== id)?.id || null) : prev);
+  }, [mutate, projects]);
+
+  const cloneProject = useCallback(id => {
+    const src = projects.find(p => p.id === id); if (!src) return;
+    const clone = {...src, id:genId(), title:`${src.title} (copy)`, sessions:[], handoffs:[], activeBranchTip:null, createdAt:now(), updatedAt:now()};
+    setProjects(prev => [clone, ...prev]); setActiveId(clone.id);
+    toast('Project cloned');
+  }, [projects, toast]);
+
+  const exportProject = useCallback(id => {
+    const p = projects.find(x => x.id === id); if (!p) return;
+    const blob = new Blob([JSON.stringify({projects:[p],exportedAt:now()},null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${p.title.replace(/[^a-z0-9]/gi,'_').toLowerCase()}_${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); toast('Exported');
+  }, [projects, toast]);
+
+  // ── Sessions (branch-aware)
+  const addSession = useCallback((projectId, data, parentId=null) => {
+    mutate(ps => ps.map(p => {
+      if (p.id !== projectId) return p;
+      const sess = {
+        id: genId(),
+        parentId: parentId ?? p.activeBranchTip ?? null,
+        tool: data.tool || 'Unknown',
+        prompt: data.prompt || '',
+        outputSummary: data.outputSummary || '',
+        producedAssets: data.producedAssets || [],
+        changesMade: data.changesMade || '',
+        nextStep: data.nextStep || '',
+        confidence: data.confidence ?? null,
+        createdAt: data.createdAt || now(),
+        verification: data.verification || { status:'unverified' },
+      };
+      const updated = {...p, sessions:[...p.sessions, sess], activeBranchTip:sess.id};
+      return touch(updated);
+    }));
+  }, [mutate]);
+
+  const updateSession = useCallback((projectId, sessionId, changes) => {
+    mutate(ps => ps.map(p => {
+      if (p.id !== projectId) return p;
+      return touch({...p, sessions: p.sessions.map(s => s.id === sessionId ? {...s,...changes} : s)});
+    }));
+  }, [mutate]);
+
+  const deleteSession = useCallback((projectId, sessionId) => {
+    mutate(ps => ps.map(p => {
+      if (p.id !== projectId) return p;
+      const remaining = p.sessions.filter(s => s.id !== sessionId);
+      const tip = remaining[remaining.length-1]?.id || null;
+      return touch({...p, sessions:remaining, activeBranchTip:tip});
+    }));
+  }, [mutate]);
+
+  const branchFrom = useCallback((projectId, sessionId) => {
+    // Set the active branch tip to sessionId — next session will branch from here
+    mutate(ps => ps.map(p => {
+      if (p.id !== projectId) return p;
+      return {...p, activeBranchTip: sessionId};
+    }));
+    toast('Branch point set — next session branches from here');
+  }, [mutate, toast]);
+
+  // ── Decisions / Assets / Tasks / Handoffs (unchanged from v3)
+  const addDecision = useCallback((pid,d) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,decisions:[{id:genId(),...d,createdAt:now()},...p.decisions]}))), [mutate]);
+  const deleteDecision = useCallback((pid,id) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,decisions:p.decisions.filter(d=>d.id!==id)}))), [mutate]);
+  const addAsset = useCallback((pid,a) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,assets:[{id:genId(),...a,createdAt:now()},...p.assets]}))), [mutate]);
+  const updateAsset = useCallback((pid,aid,ch) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,assets:p.assets.map(a=>a.id===aid?{...a,...ch}:a)}))), [mutate]);
+  const deleteAsset = useCallback((pid,aid) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,assets:p.assets.filter(a=>a.id!==aid)}))), [mutate]);
+  const addTask = useCallback((pid,t) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,tasks:[...p.tasks,{id:genId(),...t,createdAt:now()}]}))), [mutate]);
+  const updateTask = useCallback((pid,tid,ch) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,tasks:p.tasks.map(t=>t.id===tid?{...t,...ch}:t)}))), [mutate]);
+  const deleteTask = useCallback((pid,tid) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,tasks:p.tasks.filter(t=>t.id!==tid)}))), [mutate]);
+  const addHandoff = useCallback((pid,h) => mutate(ps => ps.map(p => p.id!==pid?p:touch({...p,handoffs:[...p.handoffs,h]}))), [mutate]);
+
+  // ── Core loop — deterministic generate → verify → log
+  const generateBrief = useCallback((projectId, instruction, targetTool) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return null;
+
+    const gates = checkRiskGates(project, pendingRun);
+    const blockers = gates.filter(g => g.level === 'BLOCK');
+    if (blockers.length > 0) {
+      toast(`Blocked: ${blockers[0].msg}`, 'error', 5000);
+      return null;
+    }
+
+    const branch = getActiveBranch(project.sessions, project.activeBranchTip);
+    const latest = branch[branch.length - 1];
+    const brief = {
+      schema_version: '2.0',
+      runId: `run_${Date.now().toString(36)}_${genId().slice(0,4)}`,
+      projectId,
+      project: {
+        title:       project.title,
+        objective:   project.objective,
+        coreBrief:   project.coreBrief,
+        currentPhase:project.currentPhase,
+        constraints: project.constraints,
+        toolStack:   project.toolStack,
+        decisions:   project.decisions.slice(-5),
+        latestSession: latest ? { tool:latest.tool, outputSummary:latest.outputSummary } : null,
+      },
+      instruction,
+      targetTool,
+      sessionTemplate: {
+        _comment: 'Fill and paste into ThreadOS → Agent tab → Log Result',
+        runId:          null,  // <-- fill with the runId above
+        tool:           targetTool,
+        outputSummary:  '',    // required, min 20 chars
+        changesMade:    '',    // required, min 10 chars
+        nextStep:       '',    // required, min 10 chars
+        producedAssets: [],    // array of filenames
+        confidence:     null,  // 0.0–1.0
+        decisions:      [],
+        tasks:          [],
+      },
+      generatedAt: now(),
+    };
+
+    const run = { runId:brief.runId, projectId, instruction, targetTool, generatedAt:brief.generatedAt };
+    setPendingRun(run);
+    setLoopState(LOOP.BRIEFED);
+    return brief;
+  }, [projects, pendingRun, toast]);
+
+  const logResult = useCallback((projectId, rawData) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return null;
+
+    // Normalise keys (agents may use snake_case)
+    const data = {
+      runId:          rawData.runId || rawData.run_id || null,
+      tool:           rawData.tool || 'Unknown',
+      prompt:         rawData.prompt || pendingRun?.instruction || '',
+      outputSummary:  rawData.outputSummary || rawData.output_summary || rawData.output || '',
+      changesMade:    rawData.changesMade || rawData.changes_made || rawData.changes || '',
+      nextStep:       rawData.nextStep || rawData.next_step || '',
+      producedAssets: Array.isArray(rawData.producedAssets) ? rawData.producedAssets
+                    : rawData.producedAssets ? [rawData.producedAssets]
+                    : rawData.produced_assets ? [rawData.produced_assets] : [],
+      confidence:     rawData.confidence != null ? Number(rawData.confidence) : null,
+      decisions:      rawData.decisions || [],
+      tasks:          rawData.tasks || [],
+      createdAt:      rawData.createdAt || now(),
+    };
+
+    // Schema validation
+    const schemaResult = validateSchema(data);
+
+    // Diff + composite verification
+    const currentRun = pendingRun?.projectId === projectId ? pendingRun : null;
+    const verification = verifyResult({
+      instruction:  data.prompt || currentRun?.instruction || '',
+      outputSummary: data.outputSummary,
+      schemaResult,
+      confidence:   data.confidence,
+      runId:        data.runId,
+      expectedRunId:currentRun?.runId || null,
+    });
+
+    // Merge inline decisions/tasks from agent response
+    mutate(ps => ps.map(p => {
+      if (p.id !== projectId) return p;
+      let updated = {...p};
+      data.decisions.forEach(d => {
+        if (d.title) updated = {...updated, decisions:[{id:genId(),title:d.title,rationale:d.rationale||'',impact:d.impact||'',createdAt:now()},...updated.decisions]};
+      });
+      data.tasks.forEach(t => {
+        if (t.title) updated = {...updated, tasks:[...updated.tasks,{id:genId(),title:t.title,status:t.status||'todo',owner:t.owner||'',notes:t.notes||'',createdAt:now()}]};
+      });
+      return updated;
+    }));
+
+    addSession(projectId, { ...data, verification }, project.activeBranchTip);
+
+    setPendingRun(null);
+    const newState = verification.status === 'verified' ? LOOP.VERIFIED
+                   : verification.status === 'mismatch' ? LOOP.FAILED
+                   :                                       LOOP.VERIFIED; // partial also passes
+    setLoopState(newState);
+
+    const labels = { verified:'✓ Verified', partial:'⚠ Partial match — review warnings', mismatch:'✗ Mismatch — check agent output' };
+    const types  = { verified:'info', partial:'warn', mismatch:'error' };
+    toast(labels[verification.status] || 'Logged', types[verification.status] || 'info');
+
+    setTimeout(() => setLoopState(LOOP.IDLE), 3000);
+    return verification;
+  }, [projects, pendingRun, mutate, addSession, toast]);
+
+  // ── Import / Export
+  const exportAll = useCallback(() => {
+    const blob = new Blob([JSON.stringify({projects,exportedAt:now()},null,2)],{type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `threadOS_export_${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); toast('Exported');
+  }, [projects, toast]);
+
+  const importAll = useCallback(raw => {
+    try {
+      const data = JSON.parse(raw);
+      const incoming = Array.isArray(data) ? data : (data.projects || []);
+      if (!incoming.length) throw new Error('No projects found');
+      const existingIds = new Set(projects.map(p => p.id));
+      const newOnes = incoming.filter(p => !existingIds.has(p.id)).map(p => ({...p, id:p.id||genId()}));
+      setProjects(prev => [...prev, ...newOnes]);
+      toast(`Imported ${newOnes.length} project(s)`);
+    } catch(e) { toast(`Import failed: ${e.message}`, 'error'); }
+  }, [projects, toast]);
+
+  return {
+    projects, active, activeId, setActiveId, activeBranch,
+    pendingRun, generateBrief, logResult, loopState,
+    apiKey, saveApiKey, accent, setAccent,
+    toasts, toast, dismissToast,
+    createProject, updateProject, deleteProject, cloneProject, exportProject,
+    addSession, updateSession, deleteSession, branchFrom,
+    addDecision, deleteDecision,
+    addAsset, updateAsset, deleteAsset,
+    addTask, updateTask, deleteTask,
+    addHandoff,
+    exportAll, importAll,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DESIGN TOKENS
+// ═══════════════════════════════════════════════════════════════════════════
+const C = {
+  bg:'#0a0a0c', surface:'#111114', card:'#17171c', card2:'#1f1f27',
+  border:'#1e1e26', border2:'#28283a', text:'#f0f0f2', muted:'#71717a',
+  faint:'#3a3a48', orange:'#f97316', green:'#22c55e', yellow:'#eab308',
+  red:'#ef4444', blue:'#3b82f6', purple:'#a855f7',
+  get accent(){ return localStorage.getItem(K.accent)||'#f97316'; },
+};
+
+const MONO = { fontFamily:"'JetBrains Mono',monospace" };
+
+const S = {
+  input:   { background:C.card2, border:`1px solid ${C.border2}`, borderRadius:8, padding:'9px 12px', color:C.text, fontSize:13, width:'100%', outline:'none', transition:'border-color .15s' },
+  textarea:{ background:C.card2, border:`1px solid ${C.border2}`, borderRadius:8, padding:'9px 12px', color:C.text, fontSize:13, width:'100%', outline:'none', resize:'vertical', lineHeight:1.6, transition:'border-color .15s' },
+  select:  { background:C.card2, border:`1px solid ${C.border2}`, borderRadius:8, padding:'9px 12px', color:C.text, fontSize:13, width:'100%', outline:'none', cursor:'pointer' },
+  label:   { display:'block', fontSize:11, fontWeight:600, color:C.muted, marginBottom:5, textTransform:'uppercase', letterSpacing:'.06em', ...MONO },
+  card:    { background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:'16px' },
+  btnP:    { display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, fontSize:13, fontWeight:600, background:C.orange, color:'white', border:'none', cursor:'pointer', transition:'all .15s' },
+  btnS:    { display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, fontSize:13, fontWeight:500, background:'transparent', color:C.muted, border:`1px solid ${C.border2}`, cursor:'pointer', transition:'all .15s' },
+  btnG:    { display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, fontSize:13, fontWeight:500, background:C.card2, color:C.text, border:`1px solid ${C.border2}`, cursor:'pointer', transition:'all .15s' },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ICONS
+// ═══════════════════════════════════════════════════════════════════════════
+const Ico = ({d,sz=14,c='currentColor',fill='none',sw=1.75}) => (
+  <svg width={sz} height={sz} viewBox="0 0 24 24" fill={fill} stroke={c} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
+    {Array.isArray(d)?d.map((p,i)=><path key={i} d={p}/>):<path d={d}/>}
+  </svg>
+);
+const I = {
+  Plus:    p=><Ico {...p} d="M12 5v14M5 12h14"/>,
+  X:       p=><Ico {...p} d="M18 6L6 18M6 6l12 12"/>,
+  Trash:   p=><Ico {...p} d={["M3 6h18","M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"]}/>,
+  Edit:    p=><Ico {...p} d={["M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7","M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"]}/>,
+  Check:   p=><Ico {...p} d="M20 6L9 17l-5-5"/>,
+  Copy:    p=><Ico {...p} d={["M8 17.929H6c-1.105 0-2-.912-2-2.036V5.036C4 3.91 4.895 3 6 3h8c1.105 0 2 .911 2 2.036v1.866","M14.143 6H16c1.105 0 2 .91 2 2.036v10.857C18 20.09 17.105 21 16 21H8c-1.104 0-2-.911-2-2.036V8.036C6 6.91 6.896 6 8 6h6.143z"]}/>,
+  Down:    p=><Ico {...p} d={["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4","M7 10l5 5 5-5","M12 15V3"]}/>,
+  Up:      p=><Ico {...p} d={["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4","M17 8l-5-5-5 5","M12 3v12"]}/>,
+  Layers:  p=><Ico {...p} d={["M12 2L2 7l10 5 10-5-10-5z","M2 17l10 5 10-5","M2 12l10 5 10-5"]}/>,
+  Bot:     p=><Ico {...p} d={["M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7H3a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z","M3 14v6a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-6"]}/>,
+  Branch:  p=><Ico {...p} d={["M6 3v12","M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z","M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z","M18 9a9 9 0 0 1-9 9"]}/>,
+  Shield:  p=><Ico {...p} d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>,
+  Alert:   p=><Ico {...p} d={["M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z","M12 9v4","M12 17h.01"]}/>,
+  Info:    p=><Ico {...p} d={["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z","M12 8h.01","M12 12v4"]}/>,
+  Eye:     p=><Ico {...p} d={["M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z","M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"]}/>,
+  EyeOff:  p=><Ico {...p} d={["M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24","M1 1l22 22"]}/>,
+  Link:    p=><Ico {...p} d={["M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71","M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"]}/>,
+  Send:    p=><Ico {...p} d={["M22 2L11 13","M22 2L15 22l-4-9-9-4 20-7z"]}/>,
+  Key:     p=><Ico {...p} d={["M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"]}/>,
+  Gear:    p=><Ico {...p} d={["M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z","M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"]}/>,
+  Spark:   p=><Ico {...p} d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.937A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>,
+  Star:    p=><Ico {...p} d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>,
+  Circle:  p=><Ico {...p} d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z"/>,
+  Refresh: p=><Ico {...p} d={["M23 4v6h-6","M1 20v-6h6","M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"]}/>,
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ═══════════════════════════════════════════════════════════════════════════
+function Spinner({size=12,color}) {
+  const{accent}=useStore();
+  return <span style={{width:size,height:size,border:`2px solid ${C.border2}`,borderTopColor:color||accent,borderRadius:'50%',animation:'spin .7s linear infinite',display:'inline-block',flexShrink:0}}/>;
+}
+
+function AiBtn({onClick,loading,label='AI',disabled=false}) {
+  const{accent}=useStore();
+  return(
+    <button
+      style={{display:'inline-flex',alignItems:'center',gap:4,padding:'4px 10px',borderRadius:5,fontSize:11,fontWeight:600,background:`${accent}18`,color:accent,border:`1px solid ${accent}30`,cursor:disabled||loading?'default':'pointer',opacity:disabled||loading?.6:1,...MONO}}
+      onClick={disabled||loading?undefined:onClick}
+      disabled={disabled||loading}
+    >
+      {loading?<Spinner size={10}/>:<I.Spark size={11}/>}
+      {label}
+    </button>
+  );
+}
+
+function VBadge({v,large=false}) {
+  if(!v||v.status==='unverified') return <span style={{fontSize:10,color:C.faint,...MONO}}>—</span>;
+  const cfg = {
+    verified:{ bg:`${C.green}15`, border:`${C.green}30`, c:C.green, label:large?`✓ Delivered (${Math.round((v.composite||0)*100)}%)`:`✓ ${Math.round((v.composite||0)*100)}%` },
+    partial: { bg:`${C.yellow}15`, border:`${C.yellow}30`, c:C.yellow, label:large?`⚠ Partially done (${Math.round((v.composite||0)*100)}%)`:`⚠ ${Math.round((v.composite||0)*100)}%` },
+    mismatch:{ bg:`${C.red}15`, border:`${C.red}30`, c:C.red, label:large?`✗ Needs review (${Math.round((v.composite||0)*100)}%)`:`✗ ${Math.round((v.composite||0)*100)}%` },
+  };
+  const s = cfg[v.status]; if(!s) return null;
+  return(
+    <span style={{display:'inline-flex',alignItems:'center',padding:large?'4px 10px':'2px 7px',borderRadius:4,fontSize:large?12:10,fontWeight:700,...MONO,background:s.bg,border:`1px solid ${s.border}`,color:s.c}}>
+      {s.label}
+    </span>
+  );
+}
+
+function HealthDot({score}) {
+  const c = score>=75?C.green:score>=50?C.yellow:C.red;
+  return <span style={{width:7,height:7,borderRadius:'50%',background:c,flexShrink:0,display:'inline-block'}}/>;
+}
+
+function Modal({title,subtitle,onClose,children,wide=false,maxWidth}) {
+  useEffect(()=>{const h=e=>{if(e.key==='Escape')onClose();};document.addEventListener('keydown',h);return()=>document.removeEventListener('keydown',h);},[onClose]);
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:'rgba(0,0,0,.8)',backdropFilter:'blur(8px)'}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border2}`,borderRadius:12,width:'100%',maxWidth:maxWidth||wide?600:460,boxShadow:'0 40px 80px rgba(0,0,0,.7)',animation:'fadeUp .18s ease-out',maxHeight:'90vh',display:'flex',flexDirection:'column'}}>
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'16px 20px',borderBottom:`1px solid ${C.border}`,flexShrink:0,gap:12}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,color:C.text}}>{title}</div>
+            {subtitle&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{subtitle}</div>}
+          </div>
+          <button style={{background:'transparent',border:'none',cursor:'pointer',color:C.muted,padding:2,flexShrink:0,marginTop:1}} onClick={onClose}><I.X size={14}/></button>
+        </div>
+        <div style={{padding:20,overflowY:'auto',flex:1}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({label,children,hint,action}) {
+  return(
+    <div style={{marginBottom:14}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+        <label style={S.label}>{label}</label>
+        {action}
+      </div>
+      {children}
+      {hint&&<div style={{fontSize:10,color:C.muted,marginTop:4,...MONO}}>{hint}</div>}
+    </div>
+  );
+}
+
+function InfoBox({type='info',children}) {
+  const{accent}=useStore();
+  const cfg = {
+    info:  { bg:`${C.blue}0a`,   border:`${C.blue}25`,   c:'#93c5fd', Icon:I.Info  },
+    warn:  { bg:`${C.yellow}0a`, border:`${C.yellow}25`, c:C.yellow,  Icon:I.Alert },
+    error: { bg:`${C.red}0a`,    border:`${C.red}25`,    c:'#fca5a5', Icon:I.Alert },
+    ai:    { bg:`${accent}0a`,   border:`${accent}25`,   c:accent,    Icon:I.Spark },
+  };
+  const s = cfg[type]||cfg.info;
+  return(
+    <div style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:8,padding:'10px 14px',marginBottom:14,display:'flex',alignItems:'flex-start',gap:10,fontSize:12,color:s.c,lineHeight:1.6}}>
+      <s.Icon sz={13} c={s.c} style={{flexShrink:0,marginTop:1}}/>
+      <div style={{flex:1}}>{children}</div>
+    </div>
+  );
+}
+
+function Empty({icon,title,body,action}) {
+  return(
+    <div style={{textAlign:'center',padding:'40px 20px',display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+      <div style={{width:44,height:44,background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',color:C.faint}}>{icon}</div>
+      <div style={{fontSize:13,fontWeight:600,color:C.faint}}>{title}</div>
+      {body&&<div style={{fontSize:12,color:C.faint,maxWidth:280,lineHeight:1.5}}>{body}</div>}
+      {action&&<div style={{marginTop:4}}>{action}</div>}
+    </div>
+  );
+}
+
+function GateWall({gates,onAcknowledge}) {
+  const{accent}=useStore();
+  const blockers = gates.filter(g=>g.level==='BLOCK');
+  const warnings = gates.filter(g=>g.level==='WARN');
+  return(
+    <div style={{background:C.card,border:`1px solid ${C.red}30`,borderRadius:10,padding:'16px',marginBottom:16,animation:'gate .25s ease-out'}}>
+      {blockers.length>0&&<>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+          <I.Shield sz={15} c={C.red}/>
+          <span style={{fontSize:13,fontWeight:700,color:C.red}}>Heads up — there's something to resolve first</span>
+        </div>
+        {blockers.map(g=>(
+          <div key={g.code} style={{background:`${C.red}0a`,border:`1px solid ${C.red}20`,borderRadius:7,padding:'12px 14px',marginBottom:8}}>
+            <div style={{fontSize:13,color:C.text,marginBottom:6,lineHeight:1.6}}>{g.msg}</div>
+            <div style={{fontSize:12,color:'#fca5a5',display:'flex',gap:6,alignItems:'flex-start'}}>
+              <span style={{flexShrink:0,marginTop:1}}>→</span><span>{g.fix}</span>
+            </div>
+          </div>
+        ))}
+      </>}
+      {warnings.length>0&&<>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,marginTop:blockers.length?12:0}}>
+          <I.Alert sz={13} c={C.yellow}/>
+          <span style={{fontSize:12,fontWeight:600,color:C.yellow}}>A few things worth knowing ({warnings.length})</span>
+        </div>
+        {warnings.map(g=>(
+          <div key={g.code} style={{fontSize:12,color:C.muted,marginBottom:5,display:'flex',gap:8}}>
+            <span style={{color:C.yellow,flexShrink:0}}>⚠</span><span>{g.msg}</span>
+          </div>
+        ))}
+        {blockers.length===0&&<button style={{...S.btnG,fontSize:12,marginTop:10}} onClick={onAcknowledge}>I've read these — continue anyway</button>}
+      </>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VERIFICATION DETAIL PANEL
+// ═══════════════════════════════════════════════════════════════════════════
+function VerifyPanel({v,onClose}) {
+  if(!v) return null;
+  const signals = [
+    {label:'Did it follow instructions?', val:v.coverage!=null?`${Math.round(v.coverage*100)}%`:'—', note:v.matched?.length>0?`Covered: ${v.matched.slice(0,4).join(', ')}${v.matched.length>4?' +more':''}`:v.missing?.length>0?`Missed: ${v.missing.slice(0,3).join(', ')}`:'Nothing specific to check'},
+    {label:'Was the output well-formed?',  val:v.schemaScore!=null?`${v.schemaScore}/100`:'—', note:v.errors?.length?v.errors[0]:'Required fields were all present'},
+    {label:'Did the agent cite this run?', val:v.runIdStatus==='matched'?'Yes ✓':v.runIdStatus==='mismatched'?'Wrong run':v.runIdStatus==='missing'?'Not cited':'N/A', note:v.runId?`Run: ${v.runId.slice(0,20)}…`:'No active run to match against'},
+    {label:'How confident was the agent?', val:v.confidence!=null?`${Math.round(v.confidence*100)}%`:'Not reported', note:v.confidence!=null?(v.confidence>=0.8?'Agent reported high confidence':v.confidence>=0.6?'Agent reported moderate confidence':'Agent flagged uncertainty'):'Agent did not report confidence — consider asking'},
+  ];
+  return(
+    <Modal title="Verification Detail" subtitle={`Match score: ${Math.round((v.composite||0)*100)}%`} onClose={onClose} wide>
+      <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',background:C.card,borderRadius:8,marginBottom:16}}>
+        <VBadge v={v} large/>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:600,color:C.text}}>
+            {v.status==='verified'?'The agent did what you asked.'
+             :v.status==='partial'?'The agent partially completed the task — check what was missed.'
+             :'The output doesn't match what was asked. Review before moving on.'}
+          </div>
+          <div style={{fontSize:11,color:C.muted,...MONO,marginTop:2}}>checked {v.checkedAt?fmtAgo(v.checkedAt):''}</div>
+        </div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:16}}>
+        {signals.map(sig=>(
+          <div key={sig.label} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:7,padding:'10px 12px'}}>
+            <div style={{fontSize:10,...MONO,color:C.muted,textTransform:'uppercase',marginBottom:4}}>{sig.label}</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.text,...MONO,marginBottom:3}}>{sig.val}</div>
+            <div style={{fontSize:10,color:C.faint,lineHeight:1.4}}>{sig.note}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:v.warnings?.length?12:0}}>
+        <div style={{background:`${C.green}08`,border:`1px solid ${C.green}20`,borderRadius:7,padding:10}}>
+          <div style={{fontSize:10,...MONO,color:C.green,marginBottom:6}}>Instructions the agent covered</div>
+          {v.matched?.length>0?v.matched.map(t=><div key={t} style={{fontSize:11,color:C.green,marginBottom:2}}>✓ {t}</div>):<div style={{fontSize:11,color:C.faint}}>none</div>}
+        </div>
+        <div style={{background:`${C.red}08`,border:`1px solid ${C.red}20`,borderRadius:7,padding:10}}>
+          <div style={{fontSize:10,...MONO,color:C.red,marginBottom:6}}>Things that weren't addressed</div>
+          {v.missing?.length>0?v.missing.map(t=><div key={t} style={{fontSize:11,color:C.red,marginBottom:2}}>✗ {t}</div>):<div style={{fontSize:11,color:C.faint}}>none</div>}
+        </div>
+      </div>
+      {v.errors?.length>0&&<InfoBox type="error"><strong>Schema errors:</strong> {v.errors.join(' · ')}</InfoBox>}
+      {v.warnings?.length>0&&<InfoBox type="warn"><strong>Warnings:</strong> {v.warnings.join(' · ')}</InfoBox>}
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION FORM
+// ═══════════════════════════════════════════════════════════════════════════
+function SessForm({initial,project,onSave,onCancel}) {
+  const{apiKey,toast,accent}=useStore();
+  const[f,setF]=useState({
+    tool:initial?.tool||'',prompt:initial?.prompt||'',
+    outputSummary:initial?.outputSummary||'',
+    producedAssets:Array.isArray(initial?.producedAssets)?initial.producedAssets.join(', '):(initial?.producedAssets||''),
+    changesMade:initial?.changesMade||'',nextStep:initial?.nextStep||'',
+    confidence:initial?.confidence!=null?String(initial.confidence):'',
+    createdAt:initial?.createdAt||'',
+  });
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const[filling,setFilling]=useState(false);
+
+  const runFill=async()=>{
+    setFilling(true);
+    try{
+      const r=await AI.fillSession(apiKey,project,f.prompt,f);
+      setF(p=>({...p,outputSummary:r.outputSummary||p.outputSummary,changesMade:r.changesMade||p.changesMade,nextStep:r.nextStep||p.nextStep,confidence:r.confidence!=null?String(r.confidence):p.confidence}));
+      toast('Fields filled — review before saving');
+    }catch(e){toast(e.code==='NO_KEY'?'Add API key in Settings':e.message,'error');}
+    setFilling(false);
+  };
+
+  const save=()=>{
+    if(!f.outputSummary.trim()){toast('Add a description of what the agent did','warn');return;}
+    const assets=f.producedAssets.split(',').map(s=>s.trim()).filter(Boolean);
+    const conf=f.confidence!==''?Number(f.confidence):null;
+    onSave({...f,producedAssets:assets,confidence:isNaN(conf)?null:conf});
+  };
+
+  return(
+    <div>
+      <Field label="Which tool ran this?" hint="Claude, ChatGPT, Cursor, Tasklet…"><input style={S.input} placeholder="e.g. Claude" value={f.tool} onChange={e=>set('tool',e.target.value)}/></Field>
+      <Field label="What did you ask it to do?"><textarea style={{...S.textarea,height:60}} value={f.prompt} onChange={e=>set('prompt',e.target.value)} placeholder="The instruction you gave the agent — copy it in if you have it…"/></Field>
+      <Field label="What did it actually do?" action={<AiBtn onClick={runFill} loading={filling} label="Help me write this"/>}>
+        <textarea style={{...S.textarea,height:88}} value={f.outputSummary} onChange={e=>set('outputSummary',e.target.value)} placeholder="Describe what the agent accomplished. Be specific — this is what gets verified against your instruction."/>
+      </Field>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <Field label="What changed?"><input style={S.input} value={f.changesMade} onChange={e=>set('changesMade',e.target.value)} placeholder="Files created, decisions made, problems solved…"/></Field>
+        <Field label="Files or outputs created"><input style={S.input} value={f.producedAssets} onChange={e=>set('producedAssets',e.target.value)} placeholder="architecture.md, webhook-handler.ts (comma-separated)"/></Field>
+      </div>
+      <Field label="What's the next thing to do?" hint="Write this like a direct instruction — it becomes the default for your next agent run.">
+        <input style={S.input} value={f.nextStep} onChange={e=>set('nextStep',e.target.value)} placeholder="e.g. Reindex Pinecone embeddings using text-embedding-3-large and verify latency under 2 seconds"/>
+      </Field>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <Field label="How confident did the agent seem?" hint="0 = very uncertain, 1 = fully confident. Leave blank if the agent didn't say."><input style={S.input} type="number" min="0" max="1" step="0.01" value={f.confidence} onChange={e=>set('confidence',e.target.value)} placeholder="0.0 – 1.0"/></Field>
+        <Field label="When did this happen?" hint="Leave blank to use right now."><input type="datetime-local" style={{...S.input,colorScheme:'dark'}} value={f.createdAt?new Date(f.createdAt).toISOString().slice(0,16):''} onChange={e=>set('createdAt',e.target.value?new Date(e.target.value).toISOString():'')}/></Field>
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:8}}>
+        <button style={S.btnS} onClick={onCancel}>Cancel</button>
+        <button style={{...S.btnP,opacity:f.outputSummary.trim()?1:.5}} onClick={save}>Save Session</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SETTINGS MODAL  (focused: API key + accent)
+// ═══════════════════════════════════════════════════════════════════════════
+function SettingsModal({onClose}) {
+  const{apiKey,saveApiKey,accent,setAccent,toast}=useStore();
+  const[keyDraft,setKeyDraft]=useState(apiKey);
+  const[visible,setVisible]=useState(false);
+  const[saved,setSaved]=useState(false);
+  const ACCENTS=['#f97316','#f97316','#22c55e','#a855f7','#ec4899','#eab308','#06b6d4','#ef4444'];
+  const valid=keyDraft.trim().startsWith('sk-ant');
+
+  const handleSave=()=>{saveApiKey(keyDraft);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+
+  return(
+    <Modal title="Settings" onClose={onClose}>
+      <Field label="Anthropic API Key" hint="Stays in your browser. Only ever sent to Anthropic's API when you use an AI feature." action={<button style={{...S.btnS,padding:'3px 8px',fontSize:10}} onClick={()=>setVisible(v=>!v)}>{visible?'hide':'show'}</button>}>
+        <input type={visible?'text':'password'} style={{...S.input,...MONO,fontSize:12}} placeholder="sk-ant-api03-…" value={keyDraft} onChange={e=>setKeyDraft(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSave()}/>
+      </Field>
+      {keyDraft&&(valid
+        ?<InfoBox type="ai">Key looks good. Save it and all the ✦ AI buttons across the app will light up.</InfoBox>
+        :<InfoBox type="warn">That doesn't look right — Anthropic keys start with <code style={{...MONO,fontSize:11}}>sk-ant</code></InfoBox>
+      )}
+      <div style={{display:'flex',gap:8,marginBottom:20}}>
+        {apiKey&&<button style={{...S.btnS,color:C.red,borderColor:`${C.red}30`}} onClick={()=>{localStorage.removeItem(K.apiKey);saveApiKey('');setKeyDraft('');}}>Clear key</button>}
+        <button style={{...S.btnP,minWidth:80}} onClick={handleSave}>{saved?'✓ Saved':'Save Key'}</button>
+      </div>
+
+      <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,marginBottom:16}}>
+        <label style={S.label}>Accent color</label>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:4}}>
+          {ACCENTS.map(col=>(
+            <button key={col} onClick={()=>setAccent(col)} style={{width:28,height:28,borderRadius:7,background:col,border:`2px solid ${accent===col?'white':'transparent'}`,cursor:'pointer',transition:'border-color .12s'}}/>
+          ))}
+        </div>
+      </div>
+
+      <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+        <label style={S.label}>What the API key unlocks</label>
+        {[['Brief','Fills in the objective, constraints, and tool stack from a description'],
+          ['Sessions','Writes the output summary and next step based on what you gave the agent'],
+          ['Agent','Suggests what to do next · Scores your instruction before you send it'],
+          ['Health','Reads your session history and flags specific things to watch'],
+        ].map(([tab,desc])=>(
+          <div key={tab} style={{display:'flex',gap:8,padding:'6px 0',borderBottom:`1px solid ${C.border}`,alignItems:'flex-start'}}>
+            <span style={{fontSize:10,...MONO,color:C.muted,width:60,flexShrink:0,paddingTop:1}}>{tab}</span>
+            <span style={{fontSize:11,color:C.muted}}>{desc}</span>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROJECT ITEM (sidebar)
+// ═══════════════════════════════════════════════════════════════════════════
+function ProjectItem({proj,active,pending,onClick,onClone,onExport,onRename,onDelete,onArchive}) {
+  const[editing,setEditing]=useState(false);
+  const[title,setTitle]=useState(proj.title);
+  const[menu,setMenu]=useState(false);
+  const{score,notes}=projectHealth(proj);
+  const sc=score>=75?C.green:score>=50?C.yellow:C.red;
+  const ref=useRef(null);
+  useEffect(()=>{if(editing&&ref.current)ref.current.focus();},[editing]);
+  const commit=()=>{if(title.trim()&&title.trim()!==proj.title)onRename(title.trim());else setTitle(proj.title);setEditing(false);};
+
+  return(
+    <div style={{position:'relative',marginBottom:1}}>
+      <div
+        onClick={e=>{if(e.target.tagName!=='INPUT'&&!editing)onClick();}}
+        onContextMenu={e=>{e.preventDefault();setMenu(v=>!v);}}
+        style={{padding:'7px 10px',borderRadius:7,background:active?C.card2:'transparent',border:`1px solid ${active?C.border2:'transparent'}`,cursor:'pointer',transition:'all .1s',display:'flex',alignItems:'center',gap:7}}
+      >
+        <HealthDot score={score}/>
+        <div style={{flex:1,minWidth:0}}>
+          {editing
+            ?<input ref={ref} style={{...S.input,fontSize:12,padding:'1px 5px',height:'auto'}} value={title} onChange={e=>setTitle(e.target.value)} onBlur={commit} onKeyDown={e=>{if(e.key==='Enter')commit();if(e.key==='Escape'){setTitle(proj.title);setEditing(false);}}} onClick={e=>e.stopPropagation()}/>
+            :<div style={{fontSize:12,fontWeight:active?600:400,color:active?C.text:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{proj.title}</div>
+          }
+          <div style={{fontSize:9,...MONO,color:C.faint,marginTop:1,display:'flex',gap:3,alignItems:'center'}}>
+            <span>{proj.sessions.length}s</span><span>·</span>
+            <span>{proj.tasks.filter(t=>t.status!=='done').length}t</span><span>·</span>
+            <span style={{color:sc}}>{score}</span>
+          </div>
+        </div>
+        {pending&&<span style={{width:5,height:5,borderRadius:'50%',background:'#fbbf24',animation:'pulse 1.2s infinite',flexShrink:0}}/>}
+        <span onClick={e=>{e.stopPropagation();setMenu(v=>!v);}} style={{fontSize:13,color:menu?C.text:C.faint,cursor:'pointer',padding:'0 2px',lineHeight:1,opacity:menu?1:0}} className="proj-menu-btn">⋯</span>
+      </div>
+      {menu&&<>
+        <div style={{position:'fixed',inset:0,zIndex:200}} onClick={()=>setMenu(false)}/>
+        <div style={{position:'absolute',left:'calc(100% + 3px)',top:0,zIndex:201,background:C.surface,border:`1px solid ${C.border2}`,borderRadius:8,padding:4,minWidth:148,boxShadow:'0 8px 32px rgba(0,0,0,.6)',animation:'fadeUp .1s ease-out'}}>
+          {[['Rename',()=>{setMenu(false);setEditing(true);}],
+            ['Clone',()=>{setMenu(false);onClone();}],
+            ['Export JSON',()=>{setMenu(false);onExport();}],
+            [proj.status==='archived'?'Unarchive':'Archive',()=>{setMenu(false);onArchive();}],
+            ['—'],
+            ['Delete',()=>{setMenu(false);onDelete();},true],
+          ].map(([l,a,danger])=>l==='—'
+            ?<div key="sep" style={{height:1,background:C.border,margin:'3px 0'}}/>
+            :<button key={l} onClick={a} style={{display:'block',width:'100%',padding:'6px 10px',background:'transparent',border:'none',cursor:'pointer',fontSize:12,color:danger?C.red:C.text,textAlign:'left',borderRadius:5}} onMouseEnter={e=>e.currentTarget.style.background=C.card2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{l}</button>
+          )}
+        </div>
+      </>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CREATE MODAL
+// ═══════════════════════════════════════════════════════════════════════════
+function CreateModal({onClose}) {
+  const{createProject,toast,accent}=useStore();
+  const[title,setTitle]=useState('');
+  const[obj,setObj]=useState('');
+  const submit=()=>{
+    if(!title.trim()){toast('Give this project a name first','warn');return;}
+    createProject({title:title.trim(),objective:obj.trim()});
+    onClose();
+  };
+  return(
+    <Modal title="Start a new project" onClose={onClose}>
+      <Field label="Project name" hint="Short and specific — you'll see this in the sidebar."><input style={S.input} autoFocus placeholder="e.g. Support bot, Signal articles, Q3 onboarding…" value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()}/></Field>
+      <Field label="What's this project trying to do?" hint="Optional here — you can flesh it out in the Brief tab."><textarea style={{...S.textarea,height:72}} placeholder="One or two sentences about the goal. You can always add more detail later." value={obj} onChange={e=>setObj(e.target.value)}/></Field>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:4}}>
+        <button style={S.btnS} onClick={onClose}>Cancel</button>
+        <button style={{...S.btnP,opacity:title.trim()?1:.5}} onClick={submit}>Create project</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OVERVIEW TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function OverviewTab({project,activeBranch,onTab}) {
+  const{toast,updateProject,accent}=useStore();
+  const latest=activeBranch[activeBranch.length-1];
+  const{score,notes}=projectHealth(project);
+  const sc=score>=75?C.green:score>=50?C.yellow:C.red;
+  const done=project.tasks.filter(t=>t.status==='done').length;
+  const gates=checkRiskGates(project,null);
+  const blocking=gates.filter(g=>g.level==='BLOCK');
+
+  const copyShare=()=>{
+    const enc=shareEncode(project);
+    if(!enc){toast('This project is too large to share via URL','warn');return;}
+    const link=`${location.href.split('#')[0]}#share=${enc}`;
+    navigator.clipboard.writeText(link).then(()=>toast('Share link copied to clipboard')).catch(()=>toast('Couldn't copy — try again','warn'));
+  };
+
+  const copyMd=()=>{
+    const md=`# ${project.title}\n\n**Objective:** ${project.objective||'—'}\n**Phase:** ${project.currentPhase||'—'}\n**Stack:** ${project.toolStack.join(', ')||'—'}\n\n${project.coreBrief||''}\n\n**Next:** ${latest?.nextStep||'—'}`;
+    navigator.clipboard.writeText(md).then(()=>toast('Summary copied'));
+  };
+
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:16,gap:12}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div
+            style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:4,lineHeight:1.2,cursor:'text',borderRadius:5,padding:'2px 4px',margin:'-2px -4px 2px',display:'inline-block'}}
+            title="Double-click to rename"
+            onDoubleClick={()=>{const t=prompt('Rename project:',project.title);if(t?.trim()&&t.trim()!==project.title)updateProject(project.id,{title:t.trim()});}}
+          >{project.title}</div>
+          {project.objective&&<div style={{fontSize:13,color:C.muted,lineHeight:1.55,maxWidth:520}}>{project.objective}</div>}
+        </div>
+        <div style={{display:'flex',gap:6,flexShrink:0}}>
+          <button style={S.btnS} onClick={copyMd}><I.Copy sz={12}/>Copy summary</button>
+          <button style={S.btnS} onClick={copyShare}><I.Link sz={12}/>Share</button>
+          <button style={{...S.btnP}} onClick={()=>onTab('Agent')}><I.Bot sz={13}/>Agent</button>
+        </div>
+      </div>
+
+      {/* Blocking gates banner */}
+      {blocking.length>0&&<div style={{background:`${C.red}0a`,border:`1px solid ${C.red}25`,borderRadius:8,padding:'10px 14px',marginBottom:14}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.red,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><I.Shield sz={12} c={C.red}/>Before you run another agent, sort these out:</div>
+        {blocking.map(g=><div key={g.code} style={{fontSize:12,color:C.muted,marginBottom:2}}>→ {g.msg}</div>)}
+      </div>}
+
+      {/* Stats */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8,marginBottom:14}}>
+        {[
+          {lbl:'Project health',val:score,c:sc,sub:notes[0]||'Looking good'},
+          {lbl:'Agent runs',val:activeBranch.length,c:C.blue,sub:`${project.sessions.length} total`},
+          {lbl:'Tasks done',val:done===0&&project.tasks.length===0?'—':`${done}/${project.tasks.length}`,c:C.green,sub:project.tasks.filter(t=>t.status==='blocked').length?`${project.tasks.filter(t=>t.status==='blocked').length} blocked`:''},
+          {lbl:'Key decisions',val:project.decisions.length,c:'#c084fc',sub:''},
+          {lbl:'Open issues',val:gates.length||'None',c:blocking.length?C.red:gates.length?C.yellow:C.green,sub:blocking.length?'action needed':''},
+        ].map(({lbl,val,c,sub})=>(
+          <div key={lbl} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 10px',textAlign:'center'}}>
+            <div style={{fontSize:22,fontWeight:800,color:c,lineHeight:1,...MONO}}>{val}</div>
+            <div style={{fontSize:10,color:C.muted,marginTop:3}}>{lbl}</div>
+            {sub&&<div style={{fontSize:9,color:C.faint,marginTop:1,...MONO}}>{sub}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Latest session */}
+      {latest&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px',marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:10}}>Last agent run</div>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+          <span style={{fontSize:10,...MONO,fontWeight:600,color:accent,background:`${accent}18`,border:`1px solid ${accent}25`,padding:'1px 7px',borderRadius:4}}>{latest.tool}</span>
+          <VBadge v={latest.verification}/>
+          {latest.confidence!=null&&<span style={{fontSize:10,...MONO,color:C.faint}}>conf {Math.round(latest.confidence*100)}%</span>}
+          <span style={{marginLeft:'auto',fontSize:10,...MONO,color:C.faint}}>{fmtAgo(latest.createdAt)}</span>
+        </div>
+        <div style={{fontSize:13,color:C.muted,lineHeight:1.55,marginBottom:latest.nextStep?10:0}}>{latest.outputSummary}</div>
+        {latest.nextStep&&<div style={{background:`${accent}08`,border:`1px solid ${accent}20`,borderRadius:7,padding:'8px 12px',display:'flex',gap:8,fontSize:12,color:C.text}}>
+          <span style={{color:accent,flexShrink:0}}>→</span>{latest.nextStep}
+        </div>}
+      </div>}
+
+      {/* Phase + stack row */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+        {project.currentPhase&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
+          <div style={{fontSize:9,...MONO,color:C.muted,textTransform:'uppercase',marginBottom:5}}>Phase</div>
+          <div style={{fontSize:13,fontWeight:600,color:C.text}}>{project.currentPhase}</div>
+        </div>}
+        {project.toolStack.length>0&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
+          <div style={{fontSize:9,...MONO,color:C.muted,textTransform:'uppercase',marginBottom:7}}>Stack</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+            {project.toolStack.map(t=><span key={t} style={{fontSize:10,...MONO,fontWeight:600,background:`${accent}15`,color:accent,border:`1px solid ${accent}25`,padding:'1px 7px',borderRadius:4}}>{t}</span>)}
+          </div>
+        </div>}
+      </div>
+
+      {/* Branch summary */}
+      {project.sessions.length>0&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:10,...MONO,color:C.muted,textTransform:'uppercase',marginBottom:8,display:'flex',alignItems:'center',gap:6}}><I.Branch sz={11}/>Progress history</div>
+        <div style={{display:'flex',alignItems:'flex-end',gap:3,height:32,marginBottom:6}}>
+          {activeBranch.slice(-10).map((s,i,arr)=>{
+            const v=s.verification?.status;
+            const col=v==='verified'?C.green:v==='mismatch'?C.red:v==='partial'?C.yellow:C.faint;
+            const h=Math.max(12,Math.min(32,Math.round((s.outputSummary?.length||0)/12)));
+            return<div key={s.id} title={`${s.tool}: ${s.outputSummary?.slice(0,60)||'—'}`} style={{flex:1,background:col,borderRadius:'2px 2px 0 0',height:h,opacity:0.5+(i/arr.length)*0.5,transition:'opacity .2s',cursor:'default'}} onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity=String(0.5+(i/arr.length)*0.5)}/>;
+          })}
+        </div>
+        <div style={{fontSize:10,...MONO,color:C.faint,display:'flex',justifyContent:'space-between'}}>
+          <span>{activeBranch.length} run{activeBranch.length!==1?'s':''} on this branch</span>
+          <span>{getBranchTips(project.sessions).length>1?`${getBranchTips(project.sessions).length} branch paths`:'linear history'}</span>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BRIEF TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function BriefTab({project}) {
+  const{updateProject,toast,apiKey,accent}=useStore();
+  const[f,setF]=useState({title:project.title,objective:project.objective,status:project.status,coreBrief:project.coreBrief,constraints:[...project.constraints],toolStack:[...project.toolStack],currentPhase:project.currentPhase,notes:project.notes||''});
+  const[nc,setNc]=useState('');
+  const[filling,setFilling]=useState(false);
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  const save=()=>{updateProject(project.id,f);toast('Brief saved');};
+  const fill=async()=>{
+    setFilling(true);
+    try{
+      const r=await AI.fillBrief(apiKey,f.title||project.title,f.coreBrief||f.objective);
+      setF(p=>({...p,objective:r.objective||p.objective,coreBrief:r.coreBrief||p.coreBrief,constraints:r.constraints?.length?r.constraints:p.constraints,currentPhase:r.currentPhase||p.currentPhase,toolStack:r.toolStack?.length?r.toolStack:p.toolStack}));
+      toast('Brief filled in — read it through, then save');
+    }catch(e){toast(e.code==='NO_KEY'?'Add API key in Settings':e.message,'error');}
+    setFilling(false);
+  };
+
+  const STATUS=['active','paused','complete','archived'];
+  const TOOLS=['Tasklet','Claude','ChatGPT','Cursor','Gemini','Copilot','Other'];
+  const togTool=t=>setF(p=>({...p,toolStack:p.toolStack.includes(t)?p.toolStack.filter(x=>x!==t):[...p.toolStack,t]}));
+
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>What is this project?</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>This brief gets included in every agent run — keep it accurate and agents will always know what they're working on.</div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <AiBtn onClick={fill} loading={filling} label="Fill this in for me"/>
+          <button style={S.btnP} onClick={save}>Save</button>
+        </div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:12,marginBottom:0}}>
+        <Field label="Title"><input style={S.input} value={f.title} onChange={e=>set('title',e.target.value)}/></Field>
+        <Field label="Status"><select style={{...S.select,width:110}} value={f.status} onChange={e=>set('status',e.target.value)}>{STATUS.map(s=><option key={s}>{s}</option>)}</select></Field>
+      </div>
+      <Field label="Objective" hint="One or two sentences. What does done look like? Agents use this to stay on track."><textarea style={{...S.textarea,height:64}} value={f.objective} onChange={e=>set('objective',e.target.value)} placeholder="e.g. Build a multi-channel AI support bot that resolves 85%+ of Tier-1 tickets without human escalation."/></Field>
+      <Field label="Background & context" hint="Give agents the context they'd need if they were starting fresh. What exists, what matters, what's the history."><textarea style={{...S.textarea,height:88}} value={f.coreBrief} onChange={e=>set('coreBrief',e.target.value)} placeholder="What does the agent need to know about this project before it can do anything useful?"/></Field>
+      <Field label="Where are we right now?" hint="A short phase name — agents use this to understand scope."><input style={S.input} value={f.currentPhase} onChange={e=>set('currentPhase',e.target.value)} placeholder="e.g. Backend Integration, QA, Final polish…"/></Field>
+      <Field label="Which tools are you using?" hint="Toggle the ones actively in use — this gets shown in every brief.">
+        <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:2}}>
+          {TOOLS.map(t=><button key={t} onClick={()=>togTool(t)} style={{padding:'5px 11px',borderRadius:6,fontSize:12,fontWeight:600,cursor:'pointer',border:`1px solid ${f.toolStack.includes(t)?accent:C.border2}`,background:f.toolStack.includes(t)?`${accent}15`:C.card2,color:f.toolStack.includes(t)?accent:C.muted,transition:'all .1s'}}>{t}</button>)}
+        </div>
+      </Field>
+      <Field label="What should the agent never do?" hint="These constraints ship in every brief. Be specific — vague constraints get ignored.">
+        {f.constraints.map((c,i)=>(
+          <div key={i} style={{display:'flex',gap:6,marginBottom:5}}>
+            <input style={{...S.input,flex:1}} value={c} onChange={e=>setF(p=>({...p,constraints:p.constraints.map((x,j)=>j===i?e.target.value:x)}))}/>
+            <button style={{...S.btnS,padding:'7px 9px'}} onClick={()=>setF(p=>({...p,constraints:p.constraints.filter((_,j)=>j!==i)}))}><I.X sz={12}/></button>
+          </div>
+        ))}
+        <div style={{display:'flex',gap:6,marginTop:4}}>
+          <input style={{...S.input,flex:1}} placeholder="e.g. Never modify files outside /src, No PII in logs…" value={nc} onChange={e=>setNc(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&nc.trim()){setF(p=>({...p,constraints:[...p.constraints,nc.trim()]}));setNc('');}}}/>
+          <button style={S.btnS} onClick={()=>{if(nc.trim()){setF(p=>({...p,constraints:[...p.constraints,nc.trim()]}));setNc('');}}}><I.Plus sz={12}/></button>
+        </div>
+      </Field>
+      <Field label="Notes & open questions" hint="Anything else agents (or future you) should know. Links, open questions, reminders."><textarea style={{...S.textarea,height:64}} value={f.notes} onChange={e=>set('notes',e.target.value)} placeholder="Scratch space — links, open questions, things to remember…"/></Field>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSIONS TAB (branch-aware)
+// ═══════════════════════════════════════════════════════════════════════════
+function SessionsTab({project,activeBranch}) {
+  const{addSession,updateSession,deleteSession,branchFrom,toast,accent}=useStore();
+  const[showAdd,setShowAdd]=useState(false);
+  const[editing,setEditing]=useState(null);
+  const[diffV,setDiffV]=useState(null);
+  const[search,setSearch]=useState('');
+  const[showAll,setShowAll]=useState(false);
+
+  const displayed=useMemo(()=>{
+    const base=showAll?[...project.sessions].reverse():[...activeBranch].reverse();
+    if(!search.trim())return base;
+    const q=search.toLowerCase();
+    return base.filter(s=>s.outputSummary?.toLowerCase().includes(q)||s.tool?.toLowerCase().includes(q)||s.prompt?.toLowerCase().includes(q)||s.nextStep?.toLowerCase().includes(q));
+  },[project.sessions,activeBranch,showAll,search]);
+
+  const branchTips=getBranchTips(project.sessions);
+  const isOnBranch=id=>activeBranch.some(s=>s.id===id);
+
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>Session history</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:1}}>{activeBranch.length} session{activeBranch.length!==1?'s':''} on this branch{project.sessions.length>activeBranch.length?` · ${project.sessions.length} total`:''}</div>
+        </div>
+        <div style={{display:'flex',gap:6}}>
+          {project.sessions.length>activeBranch.length&&<button style={{...S.btnS,fontSize:11}} onClick={()=>setShowAll(v=>!v)}>{showAll?'Show active branch only':'Show all sessions'}</button>}
+          <button style={S.btnP} onClick={()=>setShowAdd(true)}><I.Plus sz={13}/>Log a session</button>
+        </div>
+      </div>
+
+      {/* Verification summary */}
+      {activeBranch.length>0&&<div style={{display:'flex',gap:5,marginBottom:10,flexWrap:'wrap'}}>
+        {[['verified','Delivered',C.green],['partial','Partial',C.yellow],['mismatch','Needs review',C.red],['unverified','Not checked',C.faint]].map(([status,label,col])=>{
+          const n=activeBranch.filter(s=>s.verification?.status===status).length;
+          if(!n)return null;
+          return<span key={status} style={{fontSize:10,fontWeight:600,background:`${col}12`,color:col,border:`1px solid ${col}25`,padding:'2px 8px',borderRadius:4}}>{n} {label}</span>;
+        })}
+      </div>}
+
+      {activeBranch.length>2&&<div style={{marginBottom:12}}>
+        <input style={{...S.input,fontSize:12}} placeholder="Search sessions…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        {search&&<div style={{fontSize:10,...MONO,color:C.faint,marginTop:3}}>{displayed.length} results</div>}
+      </div>}
+
+      {displayed.length===0&&<Empty icon={<I.Bot sz={20}/>} title="No sessions" body="Log your first session to start building continuity." action={<button style={S.btnP} onClick={()=>setShowAdd(true)}><I.Plus sz={13}/>Log a session</button>}/>}
+
+      {displayed.map(sess=>{
+        const onBranch=isOnBranch(sess.id);
+        const isTip=branchTips.some(t=>t.id===sess.id);
+        return(
+          <div key={sess.id} style={{background:C.card,border:`1px solid ${onBranch?C.border2:C.border}`,borderRadius:10,padding:'12px 14px',marginBottom:8,opacity:onBranch?1:0.65}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:7}}>
+              <span style={{fontSize:9,...MONO,fontWeight:700,color:accent,background:`${accent}18`,border:`1px solid ${accent}25`,padding:'1px 6px',borderRadius:3}}>{sess.tool}</span>
+              <button style={{background:'transparent',border:'none',cursor:'pointer',padding:0}} onClick={()=>setDiffV(sess.verification)}><VBadge v={sess.verification}/></button>
+              {sess.confidence!=null&&<span style={{fontSize:9,...MONO,color:C.faint}}>conf {Math.round(sess.confidence*100)}%</span>}
+              {isTip&&<span style={{fontSize:9,...MONO,color:C.green,background:`${C.green}10`,border:`1px solid ${C.green}20`,padding:'1px 7px',borderRadius:4}}>latest</span>}
+              {!onBranch&&<span style={{fontSize:9,...MONO,color:C.faint}}>not on current path</span>}
+              <span style={{marginLeft:'auto',fontSize:9,...MONO,color:C.faint}}>{fmtAgo(sess.createdAt)}</span>
+              {!isTip&&onBranch&&<button style={{...S.btnS,fontSize:10,padding:'2px 8px',...MONO}} title="Fork the history from this point — useful for trying a different approach" onClick={()=>branchFrom(project.id,sess.id)}><I.Branch sz={10}/>Fork from here</button>}
+              <button style={{background:'transparent',border:'none',cursor:'pointer',color:C.faint,padding:3}} onClick={()=>setEditing(sess)}><I.Edit sz={12}/></button>
+              <button style={{background:'transparent',border:'none',cursor:'pointer',color:C.faint,padding:3}} onClick={()=>{if(confirm('Delete this session?'))deleteSession(project.id,sess.id);}}><I.Trash sz={12}/></button>
+            </div>
+            {sess.prompt&&<div style={{fontSize:10,...MONO,color:C.faint,marginBottom:6,background:C.card2,borderRadius:5,padding:'4px 8px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sess.prompt.slice(0,130)}</div>}
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.55,marginBottom:sess.nextStep?8:0}}>{sess.outputSummary}</div>
+            {sess.nextStep&&<div style={{background:`${accent}08`,border:`1px solid ${accent}18`,borderRadius:6,padding:'7px 10px',display:'flex',gap:6,fontSize:12,color:C.text}}>
+              <span style={{color:accent,flexShrink:0}}>→</span>{sess.nextStep}
+            </div>}
+            {sess.producedAssets?.length>0&&<div style={{fontSize:9,...MONO,color:C.faint,marginTop:6}}>📎 {sess.producedAssets.join(' · ')}</div>}
+          </div>
+        );
+      })}
+
+      {showAdd&&<Modal title="What did the agent do?" onClose={()=>setShowAdd(false)} wide><SessForm project={project} onSave={d=>{addSession(project.id,d);setShowAdd(false);toast('Session logged — the work is on record');}} onCancel={()=>setShowAdd(false)}/></Modal>}
+      {editing&&<Modal title="Edit this session" onClose={()=>setEditing(null)} wide><SessForm project={project} initial={editing} onSave={d=>{updateSession(project.id,editing.id,d);setEditing(null);toast('Session updated');}} onCancel={()=>setEditing(null)}/></Modal>}
+      {diffV&&<VerifyPanel v={diffV} onClose={()=>setDiffV(null)}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AGENT TAB  (the core loop UI)
+// ═══════════════════════════════════════════════════════════════════════════
+function AgentTab({project,activeBranch}) {
+  const{generateBrief,logResult,pendingRun,toast,apiKey,accent}=useStore();
+  const[tool,setTool]=useState(project.toolStack[0]||'Claude');
+  const[instruction,setInstruction]=useState('');
+  const[pasteMode,setPasteMode]=useState(false);
+  const[pasted,setPasted]=useState('');
+  const[pasteErr,setPasteErr]=useState('');
+  const[lastV,setLastV]=useState(null);
+  const[showV,setShowV]=useState(false);
+  const[suggesting,setSuggesting]=useState(false);
+  const[critiquing,setCritiquing]=useState(false);
+  const[critique,setCritique]=useState(null);
+  const[gatesAcked,setGatesAcked]=useState(false);
+  const[generatedBrief,setGeneratedBrief]=useState(null);
+
+  const latest=activeBranch[activeBranch.length-1];
+  const effectiveInst=instruction.trim()||latest?.nextStep||`Continue: ${project.title}`;
+  const isPending=pendingRun?.projectId===project.id;
+  const gates=checkRiskGates(project,pendingRun);
+  const blockers=gates.filter(g=>g.level==='BLOCK');
+  const warnings=gates.filter(g=>g.level==='WARN');
+  const hasGates=blockers.length>0||(warnings.length>0&&!gatesAcked);
+  const TOOLS=['Tasklet','Claude','ChatGPT','Cursor','Gemini','Copilot','Other'];
+
+  const doGenerate=()=>{
+    if(blockers.length>0){toast('Fix blockers before generating brief','error');return;}
+    const brief=generateBrief(project.id,effectiveInst,tool);
+    if(!brief)return;
+    const json=JSON.stringify(brief,null,2);
+    navigator.clipboard.writeText(json).then(()=>toast(`Brief copied — paste it into ${tool} to start the run`)).catch(()=>toast('Copy failed — click "Show Brief" to copy manually','warn'));
+    setGeneratedBrief(brief);
+    setCritique(null);
+  };
+
+  const doSuggest=async()=>{
+    setSuggesting(true);
+    try{const s=await AI.suggestNext(apiKey,project,activeBranch);setInstruction(s);setCritique(null);toast('Here's a suggestion — edit it if needed');}
+    catch(e){toast(e.code==='NO_KEY'?'Add API key in Settings':e.message,'error');}
+    setSuggesting(false);
+  };
+
+  const doCritique=async()=>{
+    if(!effectiveInst.trim())return;
+    setCritiquing(true);setCritique(null);
+    try{const r=await AI.critiqueInstruction(apiKey,effectiveInst,project);setCritique(r);}
+    catch(e){toast(e.code==='NO_KEY'?'Add API key in Settings':e.message,'error');}
+    setCritiquing(false);
+  };
+
+  const doApply=()=>{
+    setPasteErr('');
+    let data;
+    try{data=JSON.parse(pasted.trim());}
+    catch(e){setPasteErr(`That doesn't look like valid JSON. Check for missing commas or unclosed brackets. (${e.message.slice(0,60)})`);return;}
+    if(!data.outputSummary&&!data.output_summary&&!data.output){
+      setPasteErr(`The output is missing a summary of what the agent did. Fields found: ${Object.keys(data).join(', ').slice(0,80)}`);
+      return;
+    }
+    const v=logResult(project.id,data);
+    if(v){setLastV(v);setPasteMode(false);setPasted('');}
+  };
+
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>Run an agent</div>
+          <div style={{fontSize:11,color:C.muted,marginTop:1,lineHeight:1.5}}>Build a brief, give it to your agent, then paste back what it returned.</div>
+        </div>
+        {isPending&&<div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',background:`${C.yellow}0a`,border:`1px solid ${C.yellow}25`,borderRadius:6}}>
+          <span style={{width:6,height:6,borderRadius:'50%',background:C.yellow,animation:'pulse 1.2s infinite'}}/>
+          <span style={{fontSize:11,...MONO,color:C.yellow}}>waiting for result</span>
+        </div>}
+      </div>
+
+      {/* Risk gates */}
+      {hasGates&&!isPending&&<GateWall gates={gates} onAcknowledge={()=>setGatesAcked(true)}/>}
+
+      {/* Last verification */}
+      {lastV&&!isPending&&<div style={{display:'flex',alignItems:'center',gap:8,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',marginBottom:12}}>
+        <span style={{fontSize:11,color:C.muted}}>Last run:</span>
+        <VBadge v={lastV}/>
+        {lastV.errors?.length>0&&<span style={{fontSize:10,color:C.red}}>agent output was incomplete</span>}
+        <button style={{...S.btnS,fontSize:11,padding:'3px 9px',marginLeft:'auto'}} onClick={()=>setShowV(true)}>See breakdown</button>
+      </div>}
+
+      {/* Session context */}
+      {activeBranch.length>0&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 14px',marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:10}}>Where things stand</div>
+        {activeBranch.slice(-3).reverse().map((s,i,arr)=>(
+          <div key={s.id} style={{display:'flex',gap:8,marginBottom:i<arr.length-1?8:0,paddingBottom:i<arr.length-1?8:0,borderBottom:i<arr.length-1?`1px solid ${C.border}`:'none'}}>
+            <span style={{fontSize:9,...MONO,color:accent,background:`${accent}15`,border:`1px solid ${accent}20`,padding:'1px 6px',borderRadius:3,flexShrink:0,height:'fit-content',marginTop:1}}>{s.tool}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:11,color:C.text,lineHeight:1.4,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{s.outputSummary}</div>
+              {s.nextStep&&<div style={{fontSize:10,...MONO,color:accent,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>→ {s.nextStep.slice(0,90)}</div>}
+            </div>
+            <VBadge v={s.verification}/>
+          </div>
+        ))}
+      </div>}
+
+      {/* Brief generator */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px',marginBottom:12}}>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>Step 1 — Tell the agent what to do</div>
+          <div style={{fontSize:12,color:C.muted,lineHeight:1.55}}>Choose your tool, set the instruction, then copy the brief and paste it into your agent to start a run.</div>
+        </div>
+        <Field label="Which tool are you running this in?">
+          <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+            {TOOLS.map(t=><button key={t} onClick={()=>setTool(t)} style={{padding:'5px 11px',borderRadius:5,fontSize:12,fontWeight:600,cursor:'pointer',border:`1px solid ${tool===t?accent:C.border2}`,background:tool===t?`${accent}15`:C.card2,color:tool===t?accent:C.muted,transition:'all .1s'}}>{t}</button>)}
+          </div>
+        </Field>
+        <Field label="What should it do?" hint={latest?.nextStep?`Carries forward: "${latest.nextStep.slice(0,70)}${latest.nextStep.length>70?'…':''}"`:'No previous next step — write one below.'}>
+          <div style={{display:'flex',gap:6}}>
+            <input style={{...S.input,flex:1}} placeholder="Be specific. The more precise you are, the easier it is to verify the agent actually did it." value={instruction} onChange={e=>{setInstruction(e.target.value);setCritique(null);}}/>
+            <AiBtn onClick={doSuggest} loading={suggesting} label="What should I do next?"/>
+          </div>
+        </Field>
+
+        {/* Critique */}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:critique?12:8}}>
+          <AiBtn onClick={doCritique} loading={critiquing} label="Is this a good instruction?"/>
+          {critique&&<span style={{fontSize:12,color:critique.score>=80?C.green:critique.score>=55?C.yellow:C.red,fontWeight:600}}>{critique.score>=80?'Looks good':critique.score>=55?'Could be sharper':'Needs work'} ({critique.score}/100)</span>}
+        </div>
+        {critique&&<div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px',marginBottom:12}}>
+          {critique.verdict&&<div style={{fontSize:12,color:C.muted,marginBottom:8,fontStyle:'italic'}}>"{critique.verdict}"</div>}
+          {critique.issues?.map((iss,i)=><div key={i} style={{fontSize:11,color:'#fca5a5',display:'flex',gap:5,marginBottom:2}}><span>✗</span>{iss}</div>)}
+          {critique.improved&&<div style={{marginTop:8}}>
+            <div style={{fontSize:11,fontWeight:600,color:C.green,marginBottom:6}}>Try this instead:</div>
+            <div style={{fontSize:12,color:'#86efac',background:`${C.green}06`,border:`1px solid ${C.green}15`,borderRadius:5,padding:'7px 10px',cursor:'pointer',lineHeight:1.5}} onClick={()=>{setInstruction(critique.improved);setCritique(null);}}>"{critique.improved}" <span style={{color:C.faint,fontSize:10}}>click to use this</span></div>
+          </div>}
+        </div>}
+
+        <button
+          style={{...S.btnP,width:'100%',justifyContent:'center',opacity:(blockers.length>0&&!gatesAcked)?0.4:1}}
+          onClick={doGenerate}
+          disabled={blockers.length>0&&!gatesAcked}
+        >
+          <I.Copy sz={13}/>{isPending?'Copy new brief (replaces current run)':'Copy brief to clipboard'}
+        </button>
+        {generatedBrief&&<div style={{marginTop:8}}>
+          <button style={{...S.btnS,width:'100%',justifyContent:'center',fontSize:11}} onClick={()=>{navigator.clipboard.writeText(JSON.stringify(generatedBrief,null,2));toast('Brief copied to clipboard');}}>
+            <I.Copy sz={11}/>Copy brief again
+          </button>
+        </div>}
+      </div>
+
+      {/* Log result */}
+      <div style={{background:C.card,border:`1px solid ${isPending?C.yellow:C.border}`,borderRadius:10,padding:'14px 16px',transition:'border-color .2s'}}>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:14,fontWeight:700,color:isPending?C.yellow:C.text,marginBottom:3,display:'flex',alignItems:'center',gap:8}}>
+            {isPending&&<span style={{width:7,height:7,borderRadius:'50%',background:C.yellow,animation:'pulse 1.2s infinite',flexShrink:0}}/>}
+            Step 2 — Paste what the agent returned
+          </div>
+          <div style={{fontSize:12,color:C.muted,lineHeight:1.55}}>
+            {isPending
+              ? "A run is active. When the agent finishes, paste its JSON response here and we'll check whether it actually did what you asked."
+              : "Once the agent finishes a run, paste its output here to log the session and verify the work."}
+          </div>
+        </div>
+
+        {!pasteMode&&<div>
+          
+          <div style={{display:'flex',gap:6}}>
+            <button style={{...S.btnP,flex:1,justifyContent:'center'}} onClick={()=>setPasteMode(true)}><I.Up sz={13}/>Paste agent output</button>
+            {isPending&&<button style={{...S.btnS,fontSize:11}} onClick={()=>{if(confirm('Cancel this run? You can generate a new one anytime.')){toast('Run cleared — start a new one when ready');}}}>Cancel this run</button>}
+          </div>
+        </div>}
+
+        {pasteMode&&<div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.6}}>Paste the JSON your agent returned. It needs at least three things: what it did (<code style={{...MONO,fontSize:11}}>outputSummary</code>), what changed (<code style={{...MONO,fontSize:11}}>changesMade</code>), and what to do next (<code style={{...MONO,fontSize:11}}>nextStep</code>).</div>
+          <textarea style={{...S.textarea,...MONO,fontSize:11,height:160}} placeholder={`{\n  "runId": "${pendingRun?.runId||'run_...'}",\n  "outputSummary": "...",\n  "changesMade": "...",\n  "nextStep": "...",\n  "confidence": 0.85\n}`} value={pasted} onChange={e=>{setPasted(e.target.value);setPasteErr('');}}/> 
+          {pasteErr&&<InfoBox type="error">{pasteErr}</InfoBox>}
+          <div style={{display:'flex',gap:6,marginTop:8}}>
+            <button style={S.btnS} onClick={()=>{setPasteMode(false);setPasted('');setPasteErr('');}}>Cancel</button>
+            <button style={{...S.btnP,flex:1,justifyContent:'center',opacity:pasted.trim()?1:.5}} onClick={doApply}>Verify &amp; log this session</button>
+          </div>
+        </div>}
+      </div>
+
+      {/* Session template */}
+      {isPending&&<div style={{marginTop:10,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
+        <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:8}}>What the agent should return</div>
+        <pre style={{fontSize:10,...MONO,color:C.text,background:C.bg,borderRadius:6,padding:'10px',overflow:'auto',maxHeight:200,lineHeight:1.5}}>{JSON.stringify({runId:pendingRun.runId,tool:tool,outputSummary:'',changesMade:'',nextStep:'',producedAssets:[],confidence:null},null,2)}</pre>
+        <button style={{...S.btnS,marginTop:6,fontSize:11}} onClick={()=>{navigator.clipboard.writeText(JSON.stringify({runId:pendingRun.runId,tool:tool,outputSummary:'',changesMade:'',nextStep:'',producedAssets:[],confidence:null},null,2));toast('Template copied — paste into your agent');}}>
+          <I.Copy sz={11}/>Copy this template for your agent
+        </button>
+      </div>}
+
+      {showV&&lastV&&<VerifyPanel v={lastV} onClose={()=>setShowV(false)}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DECISIONS TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function DecisionsTab({project}) {
+  const{addDecision,deleteDecision,toast,accent}=useStore();
+  const[f,setF]=useState({title:'',rationale:'',impact:''});
+  const[show,setShow]=useState(false);
+  const submit=()=>{if(!f.title.trim())return;addDecision(project.id,f);setF({title:'',rationale:'',impact:''});setShow(false);toast('Decision recorded');};
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>Key decisions</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:1}}>Record choices that should stick — agents use these to avoid undoing work.</div>
+        </div>
+        <button style={S.btnP} onClick={()=>setShow(true)}><I.Plus sz={13}/>Record decision</button>
+      </div>
+      {project.decisions.length===0&&<Empty icon={<I.Star sz={20}/>} title="No decisions recorded" body="When you make a choice that matters — a tech stack pick, a constraint, a direction — log it here. Agents will see it and won't second-guess it." action={<button style={S.btnP} onClick={()=>setShow(true)}><I.Plus sz={13}/>Record a decision</button>}/>}
+      {[...project.decisions].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(d=>(
+        <div key={d.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:'13px 15px',marginBottom:8,position:'relative'}}>
+          <button style={{position:'absolute',top:10,right:10,background:'transparent',border:'none',cursor:'pointer',color:C.faint,padding:3}} onClick={()=>deleteDecision(project.id,d.id)}><I.Trash sz={11}/></button>
+          <div style={{fontSize:13,fontWeight:600,color:C.text,paddingRight:24,marginBottom:d.rationale?5:0}}>{d.title}</div>
+          {d.rationale&&<div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:d.impact?4:0}}>{d.rationale}</div>}
+          {d.impact&&<div style={{fontSize:11,color:C.faint,fontStyle:'italic'}}>{d.impact}</div>}
+          <div style={{fontSize:9,...MONO,color:C.faint,marginTop:6}}>{fmtAgo(d.createdAt)}</div>
+        </div>
+      ))}
+      {show&&<Modal title="Record a decision" onClose={()=>setShow(false)}>
+        <Field label="What was decided?"><input style={S.input} autoFocus value={f.title} onChange={e=>setF(p=>({...p,title:e.target.value}))} placeholder="e.g. Use GPT-4o for all inference, not Claude"/></Field>
+        <Field label="Why?" hint="One or two sentences is enough."><textarea style={{...S.textarea,height:64}} value={f.rationale} onChange={e=>setF(p=>({...p,rationale:e.target.value}))} placeholder="Why did you go this way?"/></Field>
+        <Field label="What does this affect?" hint="Optional — helps agents understand scope."><input style={S.input} value={f.impact} onChange={e=>setF(p=>({...p,impact:e.target.value}))} placeholder="e.g. All inference routes through GPT-4o from here on"/></Field>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:8}}>
+          <button style={S.btnS} onClick={()=>setShow(false)}>Cancel</button>
+          <button style={{...S.btnP,opacity:f.title.trim()?1:.5}} onClick={submit}>Save</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ASSETS TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function AssetsTab({project}) {
+  const{addAsset,deleteAsset,toast,accent}=useStore();
+  const[show,setShow]=useState(false);
+  const[view,setView]=useState(null);
+  const[f,setF]=useState({name:'',type:'prompt',content:''});
+  const TC={prompt:accent,code:C.blue,doc:C.green,note:C.yellow,spec:'#c084fc',output:'#06b6d4'};
+  const submit=()=>{if(!f.name.trim())return;addAsset(project.id,f);setF({name:'',type:'prompt',content:''});setShow(false);toast('Saved to assets');};
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>Files & assets</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:1}}>Store prompts, code, specs, and outputs here so agents can reference them.</div>
+        </div>
+        <button style={S.btnP} onClick={()=>setShow(true)}><I.Plus sz={13}/>Add</button>
+      </div>
+      {project.assets.length===0&&<Empty icon={<I.Copy sz={20}/>} title="Nothing saved yet" body="Save prompts, architecture docs, code snippets, or any output worth keeping. Paste it here and it stays with the project."/>}
+      {project.assets.map(a=>(
+        <div key={a.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:'11px 14px',marginBottom:7,display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:9,...MONO,fontWeight:700,background:`${TC[a.type]||C.muted}18`,color:TC[a.type]||C.muted,border:`1px solid ${TC[a.type]||C.muted}25`,padding:'1px 6px',borderRadius:3,flexShrink:0}}>{a.type}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:12,fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</div>
+            <div style={{fontSize:10,...MONO,color:C.faint}}>{a.content?`${(a.content.length/1000).toFixed(1)}k chars`:''}</div>
+          </div>
+          <span style={{fontSize:9,...MONO,color:C.faint}}>{fmtAgo(a.createdAt)}</span>
+          <button style={{background:'transparent',border:'none',cursor:'pointer',color:C.faint,padding:3}} onClick={()=>setView(a)}><I.Eye sz={13}/></button>
+          <button style={{background:'transparent',border:'none',cursor:'pointer',color:C.faint,padding:3}} onClick={()=>deleteAsset(project.id,a.id)}><I.Trash sz={13}/></button>
+        </div>
+      ))}
+      {show&&<Modal title="Save an asset" onClose={()=>setShow(false)} wide>
+        <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:12}}>
+          <Field label="Name *"><input style={S.input} autoFocus value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="architecture.md"/></Field>
+          <Field label="Type"><select style={{...S.select,width:100}} value={f.type} onChange={e=>setF(p=>({...p,type:e.target.value}))}>{'prompt,code,doc,note,spec,output'.split(',').map(t=><option key={t}>{t}</option>)}</select></Field>
+        </div>
+        <Field label="Content"><textarea style={{...S.textarea,...MONO,fontSize:11,height:160}} value={f.content} onChange={e=>setF(p=>({...p,content:e.target.value}))} placeholder="Paste content, code, or notes…"/></Field>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:8}}>
+          <button style={S.btnS} onClick={()=>setShow(false)}>Cancel</button>
+          <button style={{...S.btnP,opacity:f.name.trim()?1:.5}} onClick={submit}>Save</button>
+        </div>
+      </Modal>}
+      {view&&<Modal title={view.name} subtitle={`${view.type} · ${fmtAgo(view.createdAt)}`} onClose={()=>setView(null)} wide>
+        <div style={{display:'flex',gap:6,marginBottom:10,justifyContent:'flex-end'}}>
+          <button style={S.btnS} onClick={()=>{navigator.clipboard.writeText(view.content||'');toast('Copied to clipboard');}}>Copy</button>
+        </div>
+        <pre style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:7,padding:'12px',...MONO,fontSize:11,color:C.text,overflowX:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word',maxHeight:400,overflowY:'auto',lineHeight:1.6}}>{view.content||'(empty)'}</pre>
+      </Modal>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASKS TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function TasksTab({project}) {
+  const{addTask,updateTask,deleteTask,toast,accent}=useStore();
+  const[show,setShow]=useState(false);
+  const[f,setF]=useState({title:'',status:'todo',owner:'',notes:''});
+  const CYCLE={todo:'in_progress',in_progress:'blocked',blocked:'done',done:'todo'};
+  const ST={todo:{bg:C.card2,c:C.muted,lbl:'TODO'},in_progress:{bg:`${C.blue}15`,c:C.blue,lbl:'IN PROGRESS'},blocked:{bg:`${C.red}15`,c:C.red,lbl:'BLOCKED'},done:{bg:`${C.green}15`,c:C.green,lbl:'DONE'}};
+  const submit=()=>{if(!f.title.trim())return;addTask(project.id,f);setF({title:'',status:'todo',owner:'',notes:''});setShow(false);toast('Task added');};
+  const open=project.tasks.filter(t=>t.status!=='done').length;
+  const done=project.tasks.filter(t=>t.status==='done').length;
+  const pct=project.tasks.length>0?Math.round(done/project.tasks.length*100):0;
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>Tasks</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:1}}>{open} open{project.tasks.filter(t=>t.status==='blocked').length>0?` · ${project.tasks.filter(t=>t.status==='blocked').length} blocked`:''}</div>
+        </div>
+        <button style={S.btnP} onClick={()=>setShow(true)}><I.Plus sz={13}/>Add</button>
+      </div>
+      {project.tasks.length>0&&<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:5}}>
+          <span style={{fontSize:11,color:C.muted}}>{done}/{project.tasks.length} complete</span>
+          <span style={{fontSize:12,fontWeight:700,color:pct===100?C.green:C.text,...MONO}}>{pct}%</span>
+        </div>
+        <div style={{height:4,background:C.card2,borderRadius:4}}><div style={{height:4,background:pct===100?C.green:accent,borderRadius:4,width:`${pct}%`,transition:'width .4s ease'}}/></div>
+      </div>}
+      {project.tasks.length===0&&<Empty icon={<I.Check sz={20}/>} title="No tasks yet" body="Break the work down into pieces. Mark them as you go — it's the easiest way to see what's actually left to do."/>}
+      {['in_progress','blocked','todo','done'].map(status=>{
+        const items=project.tasks.filter(t=>t.status===status);
+        if(!items.length)return null;
+        const s=ST[status];
+        return(<div key={status} style={{marginBottom:14}}>
+          <div style={{fontSize:9,...MONO,fontWeight:600,color:C.muted,textTransform:'uppercase',marginBottom:6}}>{s.lbl} ({items.length})</div>
+          {items.map(t=>(
+            <div key={t.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'9px 12px',marginBottom:5,display:'flex',alignItems:'center',gap:8}}>
+              <button onClick={()=>updateTask(project.id,t.id,{status:CYCLE[t.status]})} style={{fontSize:8,...MONO,fontWeight:700,background:s.bg,color:s.c,border:'none',padding:'2px 6px',borderRadius:3,cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>{s.lbl}</button>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:500,color:t.status==='done'?C.muted:C.text,textDecoration:t.status==='done'?'line-through':''}}>{t.title}</div>
+                {(t.owner||t.notes)&&<div style={{fontSize:10,color:C.faint,marginTop:1}}>{t.owner&&<span style={{marginRight:6}}>@{t.owner}</span>}{t.notes}</div>}
+              </div>
+              <button style={{background:'transparent',border:'none',cursor:'pointer',color:C.faint,padding:3}} onClick={()=>deleteTask(project.id,t.id)}><I.Trash sz={11}/></button>
+            </div>
+          ))}
+        </div>);
+      })}
+      {show&&<Modal title="Add a task" onClose={()=>setShow(false)}>
+        <Field label="What needs to happen?"><input style={S.input} autoFocus value={f.title} onChange={e=>setF(p=>({...p,title:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="e.g. Reindex Pinecone embeddings"/></Field>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Field label="Status"><select style={S.select} value={f.status} onChange={e=>setF(p=>({...p,status:e.target.value}))}>{'todo,in_progress,blocked,done'.split(',').map(s=><option key={s}>{s.replace('_',' ')}</option>)}</select></Field>
+          <Field label="Owner"><input style={S.input} value={f.owner} onChange={e=>setF(p=>({...p,owner:e.target.value}))} placeholder="Person or team"/></Field>
+        </div>
+        <Field label="Notes"><input style={S.input} value={f.notes} onChange={e=>setF(p=>({...p,notes:e.target.value}))}/></Field>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:8}}>
+          <button style={S.btnS} onClick={()=>setShow(false)}>Cancel</button>
+          <button style={{...S.btnP,opacity:f.title.trim()?1:.5}} onClick={submit}>Add Task</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HANDOFFS TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function HandoffsTab({project,activeBranch}) {
+  const{addHandoff,toast,accent}=useStore();
+  const[view,setView]=useState(null);
+  const TOOLS=['Claude','ChatGPT','Tasklet','Cursor','Gemini','Copilot','Custom'];
+  const gen=t=>{const h=buildHandoff(project,t,activeBranch);addHandoff(project.id,h);toast(`Handoff for ${t} is ready`);};
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>Handoffs</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:1}}>Pass full context to a different agent or tool without losing anything.</div>
+        </div>
+        <div style={{display:'flex',gap:5,flexWrap:'wrap',justifyContent:'flex-end'}}>
+          {TOOLS.slice(0,4).map(t=><button key={t} style={S.btnS} onClick={()=>gen(t)}><I.Send sz={11}/>→{t}</button>)}
+        </div>
+      </div>
+      <InfoBox type="info">A handoff is a self-contained brief — it tells the next agent everything it needs to know about where things stand, what was decided, and exactly what to do next. It also includes a return template so the agent knows how to report back.</InfoBox>
+      {project.handoffs.length===0&&<Empty icon={<I.Send sz={20}/>} title="No handoffs yet" body="When you're switching tools or handing off to someone else, generate a handoff. It's a complete brief — past context, current state, and the next instruction — all in one block."/>}
+      {[...project.handoffs].reverse().map(h=>(
+        <div key={h.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 14px',marginBottom:8}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+            <span style={{fontSize:9,...MONO,fontWeight:700,color:C.blue,background:`${C.blue}15`,border:`1px solid ${C.blue}20`,padding:'1px 6px',borderRadius:3}}>→ {h.targetTool}</span>
+            <span style={{fontSize:9,...MONO,color:C.faint,marginLeft:'auto'}}>{fmtAgo(h.generatedAt)}</span>
+            <button style={S.btnS} onClick={()=>setView(h)}><I.Eye sz={11}/>View</button>
+            <button style={{...S.btnS,fontSize:12}} title="Copy as readable text (not JSON)" onClick={()=>{const txt=`PROJECT: ${h.project?.title}\n\nOBJECTIVE: ${h.project?.objective}\n\nCURRENT STATE:\n${h.context?.currentState}\n\nCONSTRAINTS:\n${(h.project?.constraints||[]).map(c=>`• ${c}`).join('\n')}\n\nNEXT INSTRUCTION:\n${h.instruction?.exactNext}`;navigator.clipboard.writeText(txt);toast('Plain text copied');}}><I.Copy sz={11}/>Text</button>
+            <button style={S.btnS} onClick={()=>{navigator.clipboard.writeText(JSON.stringify(h,null,2));toast('JSON copied');}}><I.Copy sz={11}/>JSON</button>
+          </div>
+          <div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:6}}>{h.project?.objective?.slice(0,120)}</div>
+          <div style={{background:`${accent}08`,border:`1px solid ${accent}18`,borderRadius:6,padding:'7px 10px',display:'flex',gap:6,fontSize:11,color:C.text}}>
+            <span style={{color:accent,flexShrink:0}}>→</span>{h.instruction?.exactNext?.slice(0,120)}
+          </div>
+        </div>
+      ))}
+      {view&&<Modal title={`Handoff → ${view.targetTool}`} onClose={()=>setView(null)} wide>
+        <pre style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:7,padding:'12px',...MONO,fontSize:10,color:C.text,overflowX:'auto',whiteSpace:'pre-wrap',maxHeight:480,overflowY:'auto',lineHeight:1.5}}>{JSON.stringify(view,null,2)}</pre>
+        <div style={{marginTop:10,display:'flex',gap:6,justifyContent:'flex-end'}}>
+          <button style={S.btnP} onClick={()=>{navigator.clipboard.writeText(JSON.stringify(view,null,2));toast('Copied to clipboard');}}>Copy JSON</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RISKS TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function RisksTab({project,activeBranch}) {
+  const{toast,apiKey,accent}=useStore();
+  const[heuristic,setHeuristic]=useState(()=>checkRiskGates(project,null));
+  const[aiFlags,setAiFlags]=useState([]);
+  const[analyzing,setAnalyzing]=useState(false);
+  const[dismissed,setDismissed]=useState(new Set());
+
+  useEffect(()=>setHeuristic(checkRiskGates(project,null)),[project.sessions.length,project.tasks.length,project.objective]);
+
+  const analyze=async()=>{
+    setAnalyzing(true);setAiFlags([]);
+    try{
+      const r=await AI.analyzeRisks(apiKey,project,activeBranch);
+      setAiFlags(r);toast(`${r.length} issue${r.length!==1?'s':''} found — take a look`);
+    }catch(e){toast(e.code==='NO_KEY'?'Add API key in Settings':e.message,'error');}
+    setAnalyzing(false);
+  };
+
+  const SEV={high:0,medium:1,low:2};
+  const allFlags=[...heuristic,...aiFlags].filter(f=>!dismissed.has(f.id)).sort((a,b)=>(SEV[a.severity]||3)-(SEV[b.severity]||3));
+
+  return(
+    <div style={{padding:20,overflowY:'auto',height:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>Project health</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:1}}>Automatic checks for things that tend to go wrong. Fix these before your next run.</div>
+        </div>
+        <div style={{display:'flex',gap:6}}>
+          <button style={S.btnS} onClick={()=>{setHeuristic(checkRiskGates(project,null));toast('Health checks updated');}}><I.Refresh sz={12}/>Re-check</button>
+          <AiBtn onClick={analyze} loading={analyzing} label="Analyze my sessions"/>
+        </div>
+      </div>
+      {allFlags.length===0&&<Empty icon={<I.Shield sz={20}/>} title="No issues found" body="Everything looks clean. If you want a deeper read on how the sessions are going, run the AI analysis — it looks at patterns across your history."/>}
+      {aiFlags.length>0&&<div style={{fontSize:11,fontWeight:600,color:C.orange,marginBottom:10}}>✦ From the AI analysis</div>}
+      {allFlags.map(r=>{
+        const sev={high:{bg:`${C.red}06`,border:`${C.red}20`,c:C.red},medium:{bg:`${C.yellow}06`,border:`${C.yellow}20`,c:C.yellow},BLOCK:{bg:`${C.red}08`,border:`${C.red}28`,c:C.red},WARN:{bg:`${C.yellow}06`,border:`${C.yellow}20`,c:C.yellow}}[r.severity||r.level]||{bg:`${C.blue}06`,border:`${C.blue}20`,c:C.blue};
+        return(
+          <div key={r.id||r.code} style={{background:sev.bg,border:`1px solid ${sev.border}`,borderRadius:9,padding:'12px 14px',marginBottom:8}}>
+            <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:5}}>
+              <span style={{fontSize:9,...MONO,fontWeight:700,background:sev.bg,color:sev.c,padding:'1px 6px',borderRadius:3,border:`1px solid ${sev.border}`}}>{(r.severity||r.level||'').toUpperCase()}</span>
+              {r.source==='ai'&&<span style={{fontSize:9,...MONO,color:accent,background:`${accent}12`,border:`1px solid ${accent}20`,padding:'1px 5px',borderRadius:3}}>AI</span>}
+              <span style={{fontSize:12,fontWeight:600,color:C.text,flex:1,...MONO}}>{r.code||(r.type||'').replace(/_/g,' ')}</span>
+              <button onClick={()=>setDismissed(p=>new Set([...p,r.id||r.code]))} style={{fontSize:10,color:C.faint,background:'transparent',border:'none',cursor:'pointer',...MONO}}>dismiss</button>
+            </div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.55,marginBottom:(r.fix||r.recommendation)?6:0}}>{r.msg||r.message}</div>
+            {(r.fix||r.recommendation)&&<div style={{fontSize:11,color:sev.c,display:'flex',gap:5}}><span style={{flexShrink:0}}>→</span><span>{r.fix||r.recommendation}</span></div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════
+const TABS = [
+  { id:'Overview',  icon:<I.Layers sz={13}/>, comp:OverviewTab  },
+  { id:'Brief',     icon:<I.Edit sz={13}/>,   comp:BriefTab     },
+  { id:'Sessions',  icon:<I.Bot sz={13}/>,    comp:SessionsTab  },
+  { id:'Decisions', icon:<I.Star sz={13}/>,   comp:DecisionsTab },
+  { id:'Assets',    icon:<I.Copy sz={13}/>,   comp:AssetsTab    },
+  { id:'Tasks',     icon:<I.Check sz={13}/>,  comp:TasksTab     },
+  { id:'Handoffs',  icon:<I.Send sz={13}/>,   comp:HandoffsTab  },
+  { id:'Risks',     icon:<I.Shield sz={13}/>, comp:RisksTab     },
+  { id:'Agent',     icon:<I.Spark sz={13}/>,  comp:AgentTab, accent:true },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// APP
+// ═══════════════════════════════════════════════════════════════════════════
+function App() {
+  const store = useAppStore();
+  const [tab, setTab] = useState('Overview');
+  const [showCreate, setShowCreate] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const importRef = useRef(null);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const TABS_KEYS = TABS.map(t => t.id);
+    const h = e => {
+      if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
+      if (e.key==='n'&&!e.metaKey&&!e.ctrlKey) { setShowCreate(true); return; }
+      if (e.key===','&&(e.metaKey||e.ctrlKey)) { e.preventDefault(); setShowSettings(true); return; }
+      if (e.key==='Escape') { setShowCreate(false); setShowSettings(false); return; }
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 9 && !e.metaKey && !e.ctrlKey) { const t = TABS_KEYS[n-1]; if(t) setTab(t); }
+    };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, []);
+
+  // Listen for openSettings events from child components
+  useEffect(() => {
+    const h = () => setShowSettings(true);
+    document.addEventListener('tos:openSettings', h);
+    return () => document.removeEventListener('tos:openSettings', h);
+  }, []);
+
+  // Incoming share link
+  useEffect(() => {
+    const shared = getIncomingShare();
+    if (shared) {
+      history.replaceState(null, '', location.pathname);
+      if (!store.projects.find(p => p.title === shared.title)) {
+        store.importAll(JSON.stringify({projects:[{...shared,id:genId()}]}));
+      } else {
+        store.toast(`"${shared.title}" already exists`, 'warn');
+      }
+    }
+  }, []); // eslint-disable-line
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return store.projects.filter(p => {
+      if (!showArchived && p.status === 'archived') return false;
+      return p.title.toLowerCase().includes(q) || (p.objective||'').toLowerCase().includes(q);
+    });
+  }, [store.projects, search, showArchived]);
+
+  const archivedCount = store.projects.filter(p => p.status === 'archived').length;
+  const p = store.active;
+  const TabComp = p ? TABS.find(t => t.id === tab)?.comp : null;
+  const gates = p ? checkRiskGates(p, store.pendingRun) : [];
+  const blockCount = gates.filter(g => g.level === 'BLOCK').length;
+  const isPending = store.pendingRun?.projectId === p?.id;
+  const accent = store.accent;
+
+  return (
+    <StoreCtx.Provider value={store}>
+      <style>{`
+        .proj-menu-btn{opacity:0!important;}
+        div:hover>.proj-menu-btn,.proj-menu-btn:focus{opacity:0.5!important;}
+        .proj-menu-btn:hover{opacity:1!important;}
+        input:focus,textarea:focus,select:focus{border-color:rgba(249,115,22,.4)!important;box-shadow:0 0 0 3px rgba(249,115,22,.08);}
+      `}</style>
+
+      <div style={{display:'flex',height:'100%',background:C.bg,overflow:'hidden'}}>
+
+        {/* ── SIDEBAR ── */}
+        <div style={{width:210,flexShrink:0,background:C.surface,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+
+          {/* Logo */}
+          <div style={{padding:'14px 14px 12px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:9,flexShrink:0}}>
+            <div style={{width:28,height:28,background:C.orange,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><I.Layers sz={14} c="white"/></div>
+            <div style={{flex:1,overflow:'hidden',minWidth:0}}>
+              <div style={{display:'flex',alignItems:'baseline',gap:5}}>
+                <span style={{fontWeight:800,fontSize:15,color:C.text}}>ThreadOS</span>
+                <span style={{fontSize:9,...MONO,color:C.faint}}>v{VERSION}</span>
+              </div>
+              <div style={{fontSize:9,...MONO,color:C.faint}}>{store.projects.filter(p=>p.status==='active').length} active · {store.projects.length} total</div>
+            </div>
+            <button
+              onClick={()=>setShowSettings(true)}
+              title="Settings (⌘,)"
+              style={{...S.btnG,padding:5,border:'none',background:'transparent',color:store.apiKey?C.muted:C.orange,flexShrink:0,position:'relative'}}
+            >
+              <I.Gear sz={14}/>
+              {!store.apiKey&&<span style={{position:'absolute',top:2,right:2,width:5,height:5,borderRadius:'50%',background:C.orange}}/>}
+            </button>
+          </div>
+
+          {/* Search */}
+          <div style={{padding:'10px 10px 6px',flexShrink:0}}>
+            <input style={{...S.input,fontSize:12,padding:'7px 10px'}} placeholder="Search projects…" value={search} onChange={e=>setSearch(e.target.value)}/>
+          </div>
+
+          {/* Project list */}
+          <div style={{flex:1,overflowY:'auto',padding:'4px 8px'}}>
+            {filtered.map(proj => (
+              <ProjectItem key={proj.id} proj={proj}
+                active={store.activeId===proj.id}
+                pending={store.pendingRun?.projectId===proj.id}
+                onClick={()=>{store.setActiveId(proj.id);setTab('Overview');}}
+                onClone={()=>store.cloneProject(proj.id)}
+                onExport={()=>store.exportProject(proj.id)}
+                onRename={t=>store.updateProject(proj.id,{title:t})}
+                onDelete={()=>{if(confirm(`Delete "${proj.title}"?`))store.deleteProject(proj.id);}}
+                onArchive={()=>store.updateProject(proj.id,{status:proj.status==='archived'?'active':'archived'})}
+              />
+            ))}
+            {filtered.length===0&&<div style={{fontSize:11,color:C.faint,padding:'16px 8px',textAlign:'center'}}>{search?`No results for "${search}"`:showArchived?'No projects':'No active projects'}</div>}
+            {archivedCount>0&&!search&&<button onClick={()=>setShowArchived(v=>!v)} style={{width:'100%',padding:'5px 8px',background:'transparent',border:'none',cursor:'pointer',fontSize:10,...MONO,color:C.faint,textAlign:'left'}}>
+              {showArchived?'▾ hide':'▸ show'} archived ({archivedCount})
+            </button>}
+          </div>
+
+          {/* API key indicator */}
+          <div style={{padding:'0 8px 4px',flexShrink:0}}>
+            <button onClick={()=>setShowSettings(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:6,padding:'6px 8px',background:store.apiKey?`${C.green}08`:`${C.orange}08`,border:`1px solid ${store.apiKey?`${C.green}20`:`${C.orange}20`}`,borderRadius:6,cursor:'pointer'}}>
+              <span style={{width:5,height:5,borderRadius:'50%',background:store.apiKey?C.green:C.orange,flexShrink:0}}/>
+              <span style={{fontSize:9,...MONO,color:store.apiKey?C.green:C.orange,flex:1}}>{store.apiKey?'✦ AI features on':'Add API key to unlock AI'}</span>
+              <I.Key sz={9} c={store.apiKey?C.green:C.orange}/>
+            </button>
+          </div>
+
+          {/* Bottom actions */}
+          <div style={{padding:'0 8px 8px',borderTop:`1px solid ${C.border}`,paddingTop:8,display:'flex',gap:4,flexShrink:0}}>
+            <button style={{...S.btnG,flex:1,justifyContent:'center',fontSize:11}} onClick={store.exportAll}><I.Down sz={12}/>Export</button>
+            <button style={{...S.btnG,flex:1,justifyContent:'center',fontSize:11}} onClick={()=>importRef.current?.click()}><I.Up sz={12}/>Import</button>
+            <button style={{...S.btnP,flex:1,justifyContent:'center',fontSize:11}} onClick={()=>setShowCreate(true)}><I.Plus sz={12}/>New</button>
+          </div>
+          <input ref={importRef} type="file" accept=".json" style={{display:'none'}} onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=ev=>store.importAll(ev.target.result);r.readAsText(f);e.target.value='';}}/>
+        </div>
+
+        {/* ── MAIN ── */}
+        <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
+          {p ? (
+            <>
+              {/* Tab bar */}
+              <div style={{borderBottom:`1px solid ${C.border}`,background:C.surface,flexShrink:0,display:'flex',alignItems:'stretch',paddingLeft:2,overflowX:'auto'}}>
+                {TABS.map((t,i) => {
+                  const isActive = tab === t.id;
+                  const badge = t.id==='Risks'&&blockCount>0 ? blockCount : t.id==='Agent'&&isPending ? '•' : null;
+                  return(
+                    <button key={t.id} onClick={()=>setTab(t.id)} title={`${t.id} — press ${i+1}`} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'10px 14px',fontSize:12,fontWeight:isActive?600:400,color:isActive?(t.accent?C.orange:C.text):C.muted,background:'transparent',border:'none',borderBottom:`2px solid ${isActive?(t.accent?C.orange:C.text):'transparent'}`,cursor:'pointer',transition:'all .12s',whiteSpace:'nowrap',position:'relative',flexShrink:0}}>
+                      <span style={{color:isActive?(t.accent?accent:C.text):C.faint}}>{t.icon}</span>
+                      {t.id}
+                      {badge&&<span style={{fontSize:9,...MONO,fontWeight:700,background:t.id==='Risks'?C.red:C.yellow,color:'white',borderRadius:'50%',minWidth:14,height:14,display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0 2px'}}>{badge}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Tab content */}
+              <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+                {TabComp&&<TabComp project={p} activeBranch={store.activeBranch} onTab={setTab}/>}
+              </div>
+            </>
+          ) : (
+            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:12}}>
+              <div style={{width:56,height:56,background:C.card,border:`1px solid ${C.border}`,borderRadius:16,display:'flex',alignItems:'center',justifyContent:'center',color:C.faint}}><I.Layers sz={24}/></div>
+              <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>Welcome to ThreadOS</div>
+              <div style={{fontSize:13,color:C.muted,maxWidth:340,textAlign:'center',lineHeight:1.6,marginBottom:2}}>
+                ThreadOS keeps track of what your AI agents actually do — not just what you asked them to do.
+              </div>
+              <div style={{fontSize:12,color:C.faint,maxWidth:300,textAlign:'center',lineHeight:1.6,marginBottom:8}}>
+                Create a project, write a brief, run your agent, paste back the result. ThreadOS verifies it and builds your history.
+              </div>
+              <button style={{...S.btnP}} onClick={()=>setShowCreate(true)}><I.Plus sz={14}/>Start a project</button>
+              <div style={{fontSize:11,color:C.faint,marginTop:8}}>or press <kbd style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:'1px 6px',fontSize:10,...MONO}}>N</kbd> anywhere</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── TOASTS ── */}
+      <div style={{position:'fixed',bottom:20,right:20,zIndex:3000,display:'flex',flexDirection:'column',gap:6}}>
+        {store.toasts.map(t=>{
+          const cfg={info:{border:C.border2,ic:'✓',c:C.text},warn:{border:`${C.yellow}35`,ic:'⚠',c:C.yellow},error:{border:`${C.red}35`,ic:'✕',c:C.red}};
+          const s=cfg[t.type]||cfg.info;
+          return(
+            <div key={t.id} style={{background:C.card,border:`1px solid ${s.border}`,borderRadius:8,padding:'9px 14px',display:'flex',alignItems:'center',gap:9,minWidth:220,maxWidth:320,boxShadow:'0 8px 32px rgba(0,0,0,.5)',animation:'toastIn .18s ease-out'}}>
+              <span style={{color:s.c,fontWeight:700,fontSize:13,flexShrink:0}}>{s.ic}</span>
+              <span style={{fontSize:12,color:C.text,flex:1}}>{t.msg}</span>
+              <button style={{background:'transparent',border:'none',cursor:'pointer',color:C.faint,fontSize:14,padding:'0 0 0 6px',flexShrink:0}} onClick={()=>store.dismissToast(t.id)}>×</button>
+            </div>
+          );
+        })}
+      </div>
+
+      {showCreate&&<CreateModal onClose={()=>setShowCreate(false)}/>}
+      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)}/>}
+    </StoreCtx.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
