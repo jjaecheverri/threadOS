@@ -140,7 +140,7 @@ function validateSchema(data) {
       score -= 10;
     }
   } else {
-    warnings.push('The agent didn't report confidence — consider asking it to rate its certainty');
+    warnings.push("The agent didn't report confidence — consider asking it to rate its certainty");
   }
 
   // nextStep quality heuristics
@@ -152,7 +152,7 @@ function validateSchema(data) {
       score -= 10;
     }
     if (ns.length > 0 && !ns.match(/[a-z]/)) {
-      warnings.push('The next step doesn't seem to contain an action — it should describe what to do');
+      warnings.push("The next step doesn't seem to contain an action — it should describe what to do");
       score -= 5;
     }
   }
@@ -1034,7 +1034,7 @@ function VerifyPanel({v,onClose}) {
           <div style={{fontSize:13,fontWeight:600,color:C.text}}>
             {v.status==='verified'?'The agent did what you asked.'
              :v.status==='partial'?'The agent partially completed the task — check what was missed.'
-             :'The output doesn't match what was asked. Review before moving on.'}
+             :"The output doesn't match what was asked. Review before moving on."}
           </div>
           <div style={{fontSize:11,color:C.muted,...MONO,marginTop:2}}>checked {v.checkedAt?fmtAgo(v.checkedAt):''}</div>
         </div>
@@ -1270,7 +1270,7 @@ function OverviewTab({project,activeBranch,onTab}) {
     const enc=shareEncode(project);
     if(!enc){toast('This project is too large to share via URL','warn');return;}
     const link=`${location.href.split('#')[0]}#share=${enc}`;
-    navigator.clipboard.writeText(link).then(()=>toast('Share link copied to clipboard')).catch(()=>toast('Couldn't copy — try again','warn'));
+    navigator.clipboard.writeText(link).then(()=>toast('Share link copied to clipboard')).catch(()=>toast("Couldn't copy — try again",'warn'));
   };
 
   const copyMd=()=>{
@@ -1557,7 +1557,7 @@ function AgentTab({project,activeBranch}) {
 
   const doSuggest=async()=>{
     setSuggesting(true);
-    try{const s=await AI.suggestNext(apiKey,project,activeBranch);setInstruction(s);setCritique(null);toast('Here's a suggestion — edit it if needed');}
+    try{const s=await AI.suggestNext(apiKey,project,activeBranch);setInstruction(s);setCritique(null);toast("Here's a suggestion — edit it if needed");}
     catch(e){toast(e.code==='NO_KEY'?'Add API key in Settings':e.message,'error');}
     setSuggesting(false);
   };
