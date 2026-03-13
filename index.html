@@ -2121,6 +2121,15 @@ function App() {
             </button>
           </div>
 
+          {/* Help link */}
+          <div style={{padding:'0 8px 4px',flexShrink:0}}>
+            <a href="docs/agent-manual.html" target="_blank" rel="noopener noreferrer" style={{width:'100%',display:'flex',alignItems:'center',gap:6,padding:'6px 8px',background:`${C.blue}08`,border:`1px solid ${C.blue}20`,borderRadius:6,cursor:'pointer',textDecoration:'none'}}>
+              <span style={{fontSize:12,lineHeight:1}}>?</span>
+              <span style={{fontSize:9,...MONO,color:C.blue,flex:1}}>Agent Manual</span>
+              <I.Link sz={9} c={C.blue}/>
+            </a>
+          </div>
+
           {/* Bottom actions */}
           <div style={{padding:'0 8px 8px',borderTop:`1px solid ${C.border}`,paddingTop:8,display:'flex',gap:4,flexShrink:0}}>
             <button style={{...S.btnG,flex:1,justifyContent:'center',fontSize:11}} onClick={store.exportAll}><I.Down sz={12}/>Export</button>
