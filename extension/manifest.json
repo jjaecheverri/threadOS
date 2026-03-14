@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Drifty \u2014 Catch Your Drift",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Real-time drift detection for AI conversations. Catch drift before good work slips.",
   "permissions": [
     "storage",

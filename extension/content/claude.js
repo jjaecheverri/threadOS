@@ -245,7 +245,7 @@ function iconSVG(sz) {
 let lastTurn = '';
 
 const getUser = () => {
-  for (const sel of ['[data-testid="human-turn-text"]', '.human .whitespace-pre-wrap']) {
+  for (const sel of ['[data-testid="user-message"]', '.font-user-message, [data-testid="user-message"]']) {
     const els = document.querySelectorAll(sel);
     if (els.length) return els[els.length - 1]?.textContent?.trim() || '';
   }
@@ -253,7 +253,7 @@ const getUser = () => {
 };
 
 const getAssistant = () => {
-  for (const sel of ['[data-testid="assistant-turn-text"]', '.assistant .prose']) {
+  for (const sel of ['.font-claude-response', '.font-claude-response-body, .font-claude-response']) {
     const els = document.querySelectorAll(sel);
     if (els.length) return els[els.length - 1]?.textContent?.trim() || '';
   }
