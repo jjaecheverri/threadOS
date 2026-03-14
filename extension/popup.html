@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Drifty</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Mono:wght@300;400;500&display=swap');
+  :root {
+    --bg:#080808;--surf:#111111;--card:#181818;--card2:#1e1e1e;
+    --border:#222222;--bord2:#2a2a2a;--text:#E2DDD5;--muted:#9A9490;--faint:#3a3a3a;
+    --orange:#B8926A;--green:#22c55e;--yellow:#eab308;--red:#ef4444;
+    --mono:'DM Mono',monospace;--sans:'DM Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{width:284px;background:var(--surf);font-family:var(--sans);color:var(--text);}
+  .header{display:flex;align-items:center;gap:9px;padding:13px 16px 11px;border-bottom:1px solid var(--border);}
+  .logo{width:24px;height:24px;background:var(--orange);border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .title{font-weight:800;font-size:14px;}.ver{font-size:9px;color:var(--orange);font-family:var(--mono);}
+  .status{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);font-family:var(--mono);}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--green);}
+  .content{padding:13px 16px;}
+  .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:13px;}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:7px;padding:9px;text-align:center;}
+  .stat-v{font-size:22px;font-weight:800;font-family:var(--mono);line-height:1;}
+  .stat-l{font-size:9px;color:var(--muted);margin-top:2px;}
+  .section-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-family:var(--mono);margin-bottom:7px;}
+  .thread-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--card);border:1px solid var(--border);border-radius:7px;margin-bottom:5px;}
+  .t-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+  .t-name{font-size:12px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
+  .t-meta{font-size:9px;color:var(--muted);font-family:var(--mono);flex-shrink:0;}
+  .fid{margin-bottom:13px;}
+  .fid-row{display:flex;justify-content:space-between;margin-bottom:4px;font-size:10px;color:var(--muted);}
+  .fid-score{font-weight:700;font-family:var(--mono);}
+  .fid-track{height:4px;background:var(--card2);border-radius:99px;overflow:hidden;}
+  .fid-fill{height:4px;border-radius:99px;transition:width .5s;}
+  .btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px;border-radius:7px;font-size:12px;font-weight:600;font-family:var(--sans);cursor:pointer;border:none;transition:all .14s;margin-bottom:6px;}
+  .btn-s{background:transparent;color:var(--muted);border:1px solid var(--bord2);}
+  .btn-s:hover{color:var(--text);border-color:rgba(184,146,106,.35);}
+  .footer{padding:8px 16px;background:var(--bg);border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:10px;font-family:var(--mono);color:var(--faint);}
+  .empty{text-align:center;padding:16px 0;font-size:12px;color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="8" ry="4" transform="rotate(-30 12 12)" opacity="0.7"/><circle cx="12" cy="4.5" r="1.5" fill="white" stroke="none"/></svg>
+  </div>
+  <span class="title">Drifty</span>
+  <span class="ver">v2.0</span>
+  <div class="status"><span class="dot"></span>Active</div>
+</div>
+<div class="content">
+  <div class="stat-row" id="stats">
+    <div class="stat"><div class="stat-v">—</div><div class="stat-l">Threads</div></div>
+    <div class="stat"><div class="stat-v">—</div><div class="stat-l">Sessions</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--red)">—</div><div class="stat-l">Drift</div></div>
+  </div>
+  <div class="fid" id="fid" style="display:none">
+    <div class="fid-row"><span>Avg fidelity</span><span class="fid-score" id="fid-score">—%</span></div>
+    <div class="fid-track"><div class="fid-fill" id="fid-fill" style="width:0%"></div></div>
+  </div>
+  <div id="threads"><div class="empty">Loading…</div></div>
+  <button class="btn btn-s" id="clear-btn" style="margin-top:6px">Clear all data</button>
+</div>
+<div class="footer">
+  <span>Drifty</span>
+  <span id="usage">—</span>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>

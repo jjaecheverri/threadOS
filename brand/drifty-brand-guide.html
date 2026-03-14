@@ -1,0 +1,1781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drifty — Brand Presentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* === RESET === */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --void: #080808;
+  --obsidian: #111111;
+  --surface: #181818;
+  --rim: #222222;
+  --bone: #E2DDD5;
+  --bone-mid: #C4BEB5;
+  --bone-dim: #9A9490;
+  --steel: #6E8FA0;
+  --thread: #B8926A;
+  --thread-dim: #7A5E42;
+  --thread-pale: rgba(184,146,106,0.12);
+
+  --ff-d: 'Syne', sans-serif;
+  --ff-b: 'DM Sans', sans-serif;
+  --ff-m: 'DM Mono', monospace;
+
+  --max: 1280px;
+  --pad-x: 80px;
+  --pad-y: 110px;
+  --hair: 1px solid rgba(255,255,255,0.07);
+  --hair-b: 1px solid rgba(255,255,255,0.13);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--void);
+  color: var(--bone);
+  font-family: var(--ff-b);
+  font-size: 16px;
+  line-height: 1.65;
+  overflow-x: hidden;
+}
+
+/* grain */
+body::after {
+  content:'';
+  position:fixed;
+  inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity:0.028;
+  pointer-events:none;
+  z-index:9999;
+}
+
+/* === TYPOGRAPHY === */
+h1,h2,h3,h4 { font-family: var(--ff-d); }
+
+.mono { font-family: var(--ff-m); }
+
+.label {
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+
+/* === LAYOUT === */
+.wrap {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 var(--pad-x);
+}
+
+section {
+  padding: var(--pad-y) 0;
+  border-top: var(--hair);
+}
+
+/* === SCROLL REVEAL === */
+.r {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.75s cubic-bezier(0.16,1,0.3,1),
+              transform 0.75s cubic-bezier(0.16,1,0.3,1);
+}
+.r.on { opacity:1; transform:translateY(0); }
+.d1{transition-delay:0.1s}
+.d2{transition-delay:0.22s}
+.d3{transition-delay:0.34s}
+.d4{transition-delay:0.46s}
+.d5{transition-delay:0.58s}
+
+/* ──────────────────────────────
+   NAV
+────────────────────────────── */
+nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 200;
+  padding: 20px var(--pad-x);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(8,8,8,0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: var(--hair);
+}
+
+.nav-logo {
+  font-family: var(--ff-d);
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  color: var(--bone);
+  text-decoration: none;
+}
+
+.nav-tag {
+  font-family: var(--ff-m);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--bone-dim);
+  text-transform: uppercase;
+}
+
+/* ──────────────────────────────
+   HERO
+────────────────────────────── */
+#hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  border-top: none;
+  padding: 0;
+}
+
+#bgc {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+}
+
+.hero-wrap {
+  position: relative;
+  z-index: 2;
+  padding: 120px var(--pad-x) 80px;
+  max-width: var(--max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+.hero-eyebrow {
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--thread);
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 44px;
+}
+
+.hero-wm {
+  font-family: var(--ff-d);
+  font-weight: 800;
+  font-size: clamp(80px, 13vw, 196px);
+  line-height: 0.88;
+  letter-spacing: -0.025em;
+  color: var(--bone);
+  margin-bottom: 52px;
+}
+
+.hero-hl {
+  font-family: var(--ff-d);
+  font-weight: 500;
+  font-size: clamp(22px, 2.8vw, 36px);
+  color: var(--bone);
+  letter-spacing: -0.01em;
+  margin-bottom: 20px;
+}
+
+.hero-sub {
+  font-size: 16px;
+  color: var(--bone-dim);
+  max-width: 460px;
+  line-height: 1.7;
+  margin-bottom: 56px;
+}
+
+.hero-rule {
+  width: 56px;
+  height: 1px;
+  background: var(--thread);
+  margin-bottom: 20px;
+}
+
+.hero-meta {
+  display: flex;
+  gap: 48px;
+  flex-wrap: wrap;
+}
+
+.hero-meta span {
+  font-family: var(--ff-m);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--bone-dim);
+  text-transform: uppercase;
+}
+
+/* big hero geometric mark */
+.hero-mark {
+  position: absolute;
+  right: 6%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(400px, 35vw);
+  height: min(400px, 35vw);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+@keyframes slow-spin {
+  from { transform: translateY(-50%) rotate(0deg); }
+  to   { transform: translateY(-50%) rotate(360deg); }
+}
+.hero-mark { animation: slow-spin 80s linear infinite; }
+
+.scroll-hint {
+  position: absolute;
+  bottom: 36px;
+  left: var(--pad-x);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 2;
+}
+
+.scroll-hint::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 1px;
+  background: var(--bone-dim);
+}
+
+.scroll-hint span {
+  font-family: var(--ff-m);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+
+/* ──────────────────────────────
+   SECTION CHROME
+────────────────────────────── */
+.sec-head {
+  margin-bottom: 68px;
+}
+
+.sec-num {
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--thread);
+  display: block;
+  margin-bottom: 28px;
+}
+
+.sec-title {
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: clamp(34px, 4.5vw, 60px);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--bone);
+}
+
+.sec-intro {
+  font-size: 17px;
+  color: var(--bone-dim);
+  line-height: 1.7;
+  max-width: 580px;
+  margin-top: 18px;
+}
+
+/* ──────────────────────────────
+   ESSENCE
+────────────────────────────── */
+.essence-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--rim);
+  margin-bottom: 56px;
+}
+
+.essence-cell {
+  background: var(--obsidian);
+  padding: 44px 40px;
+}
+
+.cell-label {
+  font-family: var(--ff-m);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--thread);
+  display: block;
+  margin-bottom: 18px;
+}
+
+.cell-title {
+  font-family: var(--ff-d);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--bone);
+  margin-bottom: 14px;
+}
+
+.cell-body {
+  font-size: 14px;
+  color: var(--bone-dim);
+  line-height: 1.7;
+}
+
+.pull-quote {
+  background: var(--surface);
+  border-left: 2px solid var(--thread);
+  padding: 36px 44px;
+}
+
+.pull-quote p {
+  font-family: var(--ff-d);
+  font-size: clamp(17px, 2vw, 26px);
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--bone);
+  letter-spacing: -0.01em;
+}
+
+/* ──────────────────────────────
+   PROBLEM
+────────────────────────────── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; }
+
+.drift-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--rim);
+}
+
+.stage {
+  background: var(--obsidian);
+  padding: 24px 28px;
+}
+
+.stage-label {
+  font-family: var(--ff-m);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--thread);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.stage p { font-size: 14px; color: var(--bone); }
+.stage.fading { opacity: 0.55; }
+.stage.fading p { color: var(--bone-dim); }
+.stage.lost { opacity: 0.3; }
+.stage.lost p { color: var(--bone-dim); }
+.stage.caught { background: var(--surface); border-left: 2px solid var(--thread); }
+.stage.caught .stage-label { color: var(--thread); }
+.stage.caught p { color: var(--bone); }
+
+/* ──────────────────────────────
+   POSITIONING
+────────────────────────────── */
+.pos-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: var(--rim);
+}
+
+.pos-cell {
+  background: var(--obsidian);
+  padding: 36px 28px;
+}
+
+.pos-label {
+  font-family: var(--ff-m);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--steel);
+  display: block;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rim);
+}
+
+.pos-content {
+  font-size: 13px;
+  color: var(--bone);
+  line-height: 1.65;
+}
+
+.pos-content strong { color: var(--thread); font-weight: 500; }
+
+/* ──────────────────────────────
+   NAMING
+────────────────────────────── */
+.naming-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: start;
+}
+
+.naming-word {
+  font-family: var(--ff-d);
+  font-size: clamp(80px, 11vw, 148px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--bone);
+  line-height: 0.88;
+  margin-bottom: 36px;
+}
+
+.category-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag {
+  font-family: var(--ff-m);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--bone-dim);
+  border: 1px solid var(--rim);
+  padding: 7px 14px;
+}
+
+.tag.hi { color: var(--thread); border-color: var(--thread-dim); }
+
+.naming-points { display: flex; flex-direction: column; gap: 22px; }
+
+.np {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.np-mark {
+  font-family: var(--ff-m);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--thread);
+  flex-shrink: 0;
+  margin-top: 4px;
+  width: 18px;
+}
+
+.np-text { font-size: 14px; color: var(--bone-dim); line-height: 1.65; }
+.np-text strong { color: var(--bone); font-weight: 500; }
+
+/* ──────────────────────────────
+   METAPHOR
+────────────────────────────── */
+.meta-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: start;
+}
+
+.meta-diagram { width: 100%; max-width: 500px; }
+
+.trans-block {
+  background: var(--obsidian);
+  padding: 36px 44px;
+  margin-bottom: 56px;
+}
+
+.trans-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 64px;
+}
+
+.tr { display: flex; align-items: center; gap: 14px; }
+.tr-from { font-family: var(--ff-m); font-size: 11px; color: var(--bone-dim); opacity: 0.55; text-decoration: line-through; }
+.tr-arrow { font-size: 10px; color: var(--thread); flex-shrink: 0; }
+.tr-to { font-family: var(--ff-m); font-size: 11px; color: var(--bone); letter-spacing: 0.02em; }
+
+.meta-points { display: flex; flex-direction: column; gap: 28px; }
+
+.mp {
+  padding-left: 22px;
+  border-left: 1px solid var(--rim);
+  transition: border-color 0.25s;
+}
+
+.mp:hover { border-left-color: var(--thread); }
+
+.mp-title {
+  font-family: var(--ff-d);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--bone);
+  margin-bottom: 7px;
+}
+
+.mp-body { font-size: 13px; color: var(--bone-dim); line-height: 1.65; }
+
+/* ──────────────────────────────
+   VISUAL IDENTITY
+────────────────────────────── */
+.vi-label {
+  font-family: var(--ff-m);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--thread);
+  display: block;
+  margin-bottom: 28px;
+}
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-bottom: 56px;
+}
+
+.swatch { display: flex; flex-direction: column; gap: 10px; }
+
+.sw {
+  aspect-ratio: 1 / 1.25;
+  border-radius: 1px;
+}
+
+.sw-name { font-family: var(--ff-m); font-size: 10px; letter-spacing: 0.06em; color: var(--bone-dim); text-transform: uppercase; }
+.sw-hex  { font-family: var(--ff-m); font-size: 9px; color: var(--bone-dim); opacity: 0.55; }
+
+.divider { height: 1px; background: var(--rim); margin: 48px 0; }
+
+/* type specimens */
+.type-spec-list { display: flex; flex-direction: column; gap: 0; }
+
+.type-spec {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 40px;
+  align-items: start;
+  padding: 44px 0;
+  border-bottom: var(--hair);
+}
+
+.type-spec:first-child { border-top: var(--hair); }
+
+.ts-meta-name {
+  font-family: var(--ff-m);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--thread);
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.ts-meta-detail {
+  font-family: var(--ff-m);
+  font-size: 9px;
+  color: var(--bone-dim);
+  line-height: 1.85;
+}
+
+/* motifs */
+.motif-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.motif {
+  background: var(--obsidian);
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  position: relative;
+}
+
+.motif-lbl {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  font-family: var(--ff-m);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--bone-dim);
+  text-transform: uppercase;
+}
+
+/* ──────────────────────────────
+   LOGO CONCEPTS
+────────────────────────────── */
+.logo-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: var(--rim);
+  margin-bottom: 40px;
+}
+
+.logo-cell {
+  background: var(--obsidian);
+  padding: 44px 28px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: background 0.2s;
+}
+
+.logo-cell:hover { background: var(--surface); }
+
+.logo-svg { width: 100px; height: 100px; margin-bottom: 28px; }
+
+.lc-num { font-family: var(--ff-m); font-size: 9px; letter-spacing: 0.1em; color: var(--thread); margin-bottom: 6px; text-align: center; }
+.lc-name { font-family: var(--ff-d); font-size: 13px; font-weight: 600; color: var(--bone); margin-bottom: 10px; text-align: center; }
+.lc-desc { font-size: 11px; color: var(--bone-dim); line-height: 1.6; text-align: center; }
+
+/* ──────────────────────────────
+   VOICE
+────────────────────────────── */
+.tone-three {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--rim);
+  margin-bottom: 56px;
+}
+
+.tone-cell {
+  background: var(--obsidian);
+  padding: 36px;
+}
+
+.tone-num { font-family: var(--ff-m); font-size: 9px; color: var(--thread); letter-spacing: 0.12em; text-transform: uppercase; display: block; margin-bottom: 14px; }
+.tone-title { font-family: var(--ff-d); font-size: 20px; font-weight: 700; color: var(--bone); margin-bottom: 10px; }
+.tone-body { font-size: 13px; color: var(--bone-dim); line-height: 1.65; }
+
+.voice-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--rim);
+  margin-bottom: 56px;
+}
+
+.voice-panel { background: var(--obsidian); padding: 44px 40px; }
+
+.voice-panel-label {
+  font-family: var(--ff-m);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--thread);
+  display: block;
+  margin-bottom: 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rim);
+}
+
+.voice-panel-label.dim { color: var(--bone-dim); }
+
+.vlist { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+
+.vlist li {
+  font-size: 14px;
+  color: var(--bone-dim);
+  line-height: 1.55;
+  padding-left: 18px;
+  position: relative;
+}
+
+.vlist li::before { content: '—'; position: absolute; left: 0; color: var(--steel); font-size: 12px; }
+
+.vlist.say li { color: var(--bone); }
+.vlist.say li::before { color: var(--thread); }
+
+/* headlines */
+.hl-list { margin-bottom: 48px; }
+
+.hl-item {
+  padding: 24px 0;
+  border-bottom: var(--hair);
+  display: flex;
+  align-items: baseline;
+  gap: 28px;
+}
+
+.hl-item:first-child { border-top: var(--hair); }
+
+.hl-rank { font-family: var(--ff-m); font-size: 9px; letter-spacing: 0.1em; color: var(--bone-dim); flex-shrink: 0; width: 22px; }
+.hl-text { font-family: var(--ff-d); font-size: clamp(18px, 2.2vw, 28px); font-weight: 600; color: var(--bone); letter-spacing: -0.01em; flex: 1; }
+.hl-text.primary { color: var(--thread); }
+.hl-note { font-family: var(--ff-m); font-size: 9px; letter-spacing: 0.08em; color: var(--bone-dim); text-transform: uppercase; white-space: nowrap; }
+
+.cta-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.cta {
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 10px 20px;
+  border: 1px solid var(--rim);
+  color: var(--bone-dim);
+  transition: border-color 0.2s, color 0.2s;
+  cursor: default;
+}
+
+.cta:hover { border-color: var(--thread); color: var(--bone); }
+.cta.hi { border-color: var(--thread-dim); color: var(--thread); }
+
+/* ──────────────────────────────
+   COMMERCIAL
+────────────────────────────── */
+.comm-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--rim);
+}
+
+.comm-cell { background: var(--obsidian); padding: 40px; }
+.comm-icon { width: 36px; height: 36px; margin-bottom: 20px; }
+.comm-title { font-family: var(--ff-d); font-size: 17px; font-weight: 600; color: var(--bone); margin-bottom: 10px; }
+.comm-body { font-size: 13px; color: var(--bone-dim); line-height: 1.65; }
+
+/* ──────────────────────────────
+   EXTENSION
+────────────────────────────── */
+.ext-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 36px;
+}
+
+.ext-card {
+  background: var(--obsidian);
+  padding: 22px 18px;
+  border: 1px solid var(--rim);
+  transition: border-color 0.25s;
+}
+
+.ext-card:first-child { border-color: var(--thread-dim); }
+.ext-card:hover { border-color: var(--steel); }
+
+.ext-name { font-family: var(--ff-d); font-size: 13px; font-weight: 700; color: var(--bone); margin-bottom: 6px; }
+.ext-card:first-child .ext-name { color: var(--thread); }
+.ext-desc { font-family: var(--ff-m); font-size: 9px; color: var(--bone-dim); line-height: 1.55; }
+
+/* ──────────────────────────────
+   CLOSING
+────────────────────────────── */
+#closing { background: var(--obsidian); }
+
+.close-statement {
+  font-family: var(--ff-d);
+  font-size: clamp(22px, 3vw, 44px);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--bone);
+  max-width: 860px;
+  margin-bottom: 56px;
+}
+
+.close-statement em { color: var(--thread); font-style: normal; }
+
+.close-rec {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--rim);
+  margin-top: 56px;
+}
+
+.close-cell { background: var(--surface); padding: 40px; }
+
+.close-final {
+  margin-top: 80px;
+  padding-top: 44px;
+  border-top: var(--hair);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.close-wm { font-family: var(--ff-d); font-weight: 800; font-size: 22px; letter-spacing: 0.06em; color: var(--bone); }
+.close-tag { font-family: var(--ff-m); font-size: 11px; letter-spacing: 0.1em; color: var(--thread); margin-top: 6px; }
+
+/* ──────────────────────────────
+   UTILS
+────────────────────────────── */
+p { margin-bottom: 0; }
+
+/* ──────────────────────────────
+   RESPONSIVE
+────────────────────────────── */
+@media (max-width: 960px) {
+  :root { --pad-x: 36px; --pad-y: 72px; }
+  nav { padding: 18px 36px; }
+  .hero-wrap { padding: 120px 36px 72px; }
+  .hero-mark { display: none; }
+  .two-col, .naming-layout, .meta-layout, .voice-two, .close-rec { grid-template-columns: 1fr; gap: 40px; }
+  .pos-grid { grid-template-columns: 1fr 1fr; }
+  .essence-grid, .comm-grid { grid-template-columns: 1fr; }
+  .palette { grid-template-columns: repeat(3, 1fr); }
+  .logo-grid { grid-template-columns: repeat(3, 1fr); }
+  .ext-grid { grid-template-columns: repeat(3, 1fr); }
+  .type-spec { grid-template-columns: 1fr; }
+  .trans-grid { grid-template-columns: 1fr; }
+  .tone-three { grid-template-columns: 1fr; }
+  .close-final { flex-direction: column; gap: 20px; align-items: flex-start; }
+  .scroll-hint { left: 36px; }
+}
+
+@media (max-width: 640px) {
+  .pos-grid { grid-template-columns: 1fr; }
+  .logo-grid { grid-template-columns: 1fr 1fr; }
+  .motif-grid { grid-template-columns: 1fr 1fr; }
+  .ext-grid { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="#">DRIFTY</a>
+  <span class="nav-tag">Brand Presentation — 2025</span>
+</nav>
+
+<!-- ═══════════════════════════════
+     HERO
+═══════════════════════════════ -->
+<section id="hero">
+  <canvas id="bgc"></canvas>
+
+  <!-- Hero geometric mark -->
+  <svg class="hero-mark" viewBox="0 0 420 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="210" cy="210" r="200" stroke="#B8926A" stroke-width="1" opacity="0.7"/>
+    <circle cx="210" cy="210" r="152" stroke="#6E8FA0" stroke-width="0.75" opacity="0.55"/>
+    <circle cx="210" cy="210" r="100" stroke="#E2DDD5" stroke-width="0.5" opacity="0.3"/>
+    <circle cx="210" cy="210" r="50" stroke="#B8926A" stroke-width="0.75" opacity="0.4"/>
+    <!-- Radial spokes -->
+    <line x1="210" y1="10" x2="210" y2="410" stroke="#E2DDD5" stroke-width="0.4" opacity="0.18"/>
+    <line x1="10" y1="210" x2="410" y2="210" stroke="#E2DDD5" stroke-width="0.4" opacity="0.18"/>
+    <line x1="69" y1="69" x2="351" y2="351" stroke="#E2DDD5" stroke-width="0.4" opacity="0.13"/>
+    <line x1="351" y1="69" x2="69" y2="351" stroke="#E2DDD5" stroke-width="0.4" opacity="0.13"/>
+    <!-- Web diagonals -->
+    <line x1="210" y1="10" x2="351" y2="210" stroke="#B8926A" stroke-width="0.4" opacity="0.22"/>
+    <line x1="351" y1="210" x2="210" y2="410" stroke="#B8926A" stroke-width="0.4" opacity="0.22"/>
+    <line x1="210" y1="410" x2="69" y2="210" stroke="#B8926A" stroke-width="0.4" opacity="0.22"/>
+    <line x1="69" y1="210" x2="210" y2="10" stroke="#B8926A" stroke-width="0.4" opacity="0.22"/>
+    <!-- Node anchors -->
+    <circle cx="210" cy="10" r="4" fill="#B8926A" opacity="0.85"/>
+    <circle cx="410" cy="210" r="4" fill="#B8926A" opacity="0.85"/>
+    <circle cx="210" cy="410" r="4" fill="#B8926A" opacity="0.85"/>
+    <circle cx="10" cy="210" r="4" fill="#B8926A" opacity="0.85"/>
+    <circle cx="69" cy="69" r="2.5" fill="#6E8FA0" opacity="0.7"/>
+    <circle cx="351" cy="69" r="2.5" fill="#6E8FA0" opacity="0.7"/>
+    <circle cx="351" cy="351" r="2.5" fill="#6E8FA0" opacity="0.7"/>
+    <circle cx="69" cy="351" r="2.5" fill="#6E8FA0" opacity="0.7"/>
+    <!-- Center catch -->
+    <circle cx="210" cy="210" r="8" fill="#B8926A"/>
+    <circle cx="210" cy="210" r="18" stroke="#B8926A" stroke-width="1" fill="none" opacity="0.35"/>
+    <circle cx="210" cy="210" r="32" stroke="#B8926A" stroke-width="0.5" fill="none" opacity="0.18"/>
+  </svg>
+
+  <div class="hero-wrap">
+    <span class="hero-eyebrow">Brand Presentation &mdash; 2025</span>
+    <h1 class="hero-wm">DRIFTY</h1>
+    <p class="hero-hl">Catch your drift.</p>
+    <p class="hero-sub">Continuity and drift-control for AI workflows. When ideas move across prompts, models, and sessions — Drifty holds the line.</p>
+    <div class="hero-rule"></div>
+    <div class="hero-meta">
+      <span>Drift Control</span>
+      <span>Continuity Infrastructure</span>
+      <span>Signal Preservation</span>
+    </div>
+  </div>
+
+  <div class="scroll-hint"><span>Scroll to explore</span></div>
+</section>
+
+<!-- ═══════════════════════════════
+     01 — BRAND ESSENCE
+═══════════════════════════════ -->
+<section id="essence">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 01</span>
+      <h2 class="sec-title">Brand Essence</h2>
+      <p class="sec-intro">What Drifty is, what it protects, and why it matters.</p>
+    </div>
+
+    <div class="essence-grid r d1">
+      <div class="essence-cell">
+        <span class="cell-label">Protects</span>
+        <h3 class="cell-title">The Thread</h3>
+        <p class="cell-body">Every idea has a thread — the connective logic that holds meaning together across prompts, sessions, and model switches. Drifty protects the thread before it unravels.</p>
+      </div>
+      <div class="essence-cell">
+        <span class="cell-label">Preserves</span>
+        <h3 class="cell-title">The Signal</h3>
+        <p class="cell-body">Quality degrades quietly. What starts as a clear directive becomes diluted noise. Drifty catches signal decay before it becomes output damage.</p>
+      </div>
+      <div class="essence-cell">
+        <span class="cell-label">Delivers</span>
+        <h3 class="cell-title">The Work</h3>
+        <p class="cell-body">Results that hold. Continuity that doesn't require constant manual rescue. Outputs that still mean what they were supposed to mean — start to finish.</p>
+      </div>
+    </div>
+
+    <div class="pull-quote r d2">
+      <p>"When ideas travel across prompts, models, and workflows, they drift. Good thinking loses its thread. Outputs degrade. Context slips. Drifty holds the line — so continuity isn't something you have to manually rescue."</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     02 — THE PROBLEM
+═══════════════════════════════ -->
+<section id="problem">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 02</span>
+      <h2 class="sec-title">The Problem</h2>
+    </div>
+    <div class="two-col">
+      <div class="r d1">
+        <p style="font-family:var(--ff-d);font-size:clamp(26px,3.2vw,42px);font-weight:700;letter-spacing:-0.02em;line-height:1.15;color:var(--bone);margin-bottom:28px;">Drift is invisible<br>until it isn't.</p>
+        <p style="font-size:15px;color:var(--bone-dim);line-height:1.7;margin-bottom:16px;">AI workflows have a continuity problem. Across model switches, long sessions, multi-step processes, and collaborative handoffs, the original intent — the clarity of the first idea — erodes quietly and continuously.</p>
+        <p style="font-size:15px;color:var(--bone-dim);line-height:1.7;">By the time drift becomes visible, the damage is done. Output is off. Rework is needed. The thread is lost. Drifty catches drift before it reaches that point.</p>
+      </div>
+      <div class="r d2">
+        <div class="drift-stages">
+          <div class="stage">
+            <span class="stage-label">Stage 01 — Clear Intent</span>
+            <p>Strong first prompt. Coherent starting point. Direction is intact.</p>
+          </div>
+          <div class="stage fading">
+            <span class="stage-label">Stage 02 — Expansion Begins</span>
+            <p>Context grows. Model switches. Subtle slippage starts accumulating.</p>
+          </div>
+          <div class="stage fading">
+            <span class="stage-label">Stage 03 — Drift Compounds</span>
+            <p>Output diverges from original intent. The gap widens invisibly.</p>
+          </div>
+          <div class="stage lost">
+            <span class="stage-label">Without Drifty</span>
+            <p>Thread is lost. Rework required. Quality cost realized too late.</p>
+          </div>
+          <div class="stage caught">
+            <span class="stage-label">With Drifty</span>
+            <p>Drift caught. Thread held. Output integrity preserved from the start.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     03 — POSITIONING
+═══════════════════════════════ -->
+<section id="positioning">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 03</span>
+      <h2 class="sec-title">Strategic Positioning</h2>
+    </div>
+    <div class="pos-grid r d1">
+      <div class="pos-cell">
+        <span class="pos-label">Audience</span>
+        <div class="pos-content"><p>AI power users, founders, operators, and teams managing <strong>multi-model workflows</strong> who need output integrity and continuity control.</p></div>
+      </div>
+      <div class="pos-cell">
+        <span class="pos-label">Problem</span>
+        <div class="pos-content"><p>AI outputs <strong>drift invisibly</strong> — coherence erodes, intent slips, and quality degrades across sessions, models, and handoffs with no early warning.</p></div>
+      </div>
+      <div class="pos-cell">
+        <span class="pos-label">Promise</span>
+        <div class="pos-content"><p>Drifty catches <strong>drift before it reaches the output</strong> — preserving continuity, signal quality, and intent across the full workflow arc.</p></div>
+      </div>
+      <div class="pos-cell">
+        <span class="pos-label">Category</span>
+        <div class="pos-content"><p><strong>Drift control</strong> for AI workflows. A continuity layer. Coherence infrastructure. Not an assistant. Not a wrapper. A <strong>control system</strong>.</p></div>
+      </div>
+      <div class="pos-cell">
+        <span class="pos-label">Point of Difference</span>
+        <div class="pos-content"><p>The only product built specifically to <strong>catch slippage early</strong> — not after the fact, but as a live continuity mechanism running throughout the work.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     04 — NAMING LOGIC
+═══════════════════════════════ -->
+<section id="naming">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 04</span>
+      <h2 class="sec-title">Naming Logic</h2>
+      <p class="sec-intro">Why <em style="font-style:italic;color:var(--thread);">Drifty</em> is the right name for this product.</p>
+    </div>
+    <div class="naming-layout">
+      <div class="r d1">
+        <div class="naming-word">DRIFTY</div>
+        <div class="category-tags">
+          <span class="tag hi">drift control</span>
+          <span class="tag hi">continuity layer</span>
+          <span class="tag">coherence infrastructure</span>
+          <span class="tag">result integrity system</span>
+          <span class="tag">signal-preservation tool</span>
+        </div>
+      </div>
+      <div class="naming-points r d2">
+        <div class="np"><span class="np-mark">01</span><p class="np-text"><strong>Semantically loaded.</strong> "Drifty" owns the concept it solves. The name is the problem space. That's rare — and powerful for brand clarity and recall.</p></div>
+        <div class="np"><span class="np-mark">02</span><p class="np-text"><strong>Short and ownable.</strong> One syllable root, five letters total. Registers fast, sticks, and survives every medium — domain, app store, pitch deck, word of mouth.</p></div>
+        <div class="np"><span class="np-mark">03</span><p class="np-text"><strong>Edgy through restraint.</strong> The "-y" suffix adds texture without softness. It reads as current and culturally intelligent without leaning into techno-jargon or generic noun naming.</p></div>
+        <div class="np"><span class="np-mark">04</span><p class="np-text"><strong>Built for a system.</strong> Drifty, Drifty Studio, Drifty Flow, Drifty Watch — the root extends cleanly into a product family without strain or explanation.</p></div>
+        <div class="np"><span class="np-mark">05</span><p class="np-text"><strong>Carries both truths.</strong> Names the problem (drift) and implies the solution (something that catches it). The name alone communicates the full product logic.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     05 — METAPHOR SYSTEM
+═══════════════════════════════ -->
+<section id="metaphor">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 05</span>
+      <h2 class="sec-title">Metaphor System</h2>
+      <p class="sec-intro">How the dream catcher concept has been translated into modern system language — without the craft object.</p>
+    </div>
+
+    <!-- Translation table -->
+    <div class="trans-block r d1">
+      <p class="vi-label">Conceptual Translation</p>
+      <div class="trans-grid">
+        <div class="tr"><span class="tr-from">Dream Catcher</span><span class="tr-arrow">→</span><span class="tr-to">Drift Control System</span></div>
+        <div class="tr"><span class="tr-from">Woven Web</span><span class="tr-arrow">→</span><span class="tr-to">Capture Mesh / Signal Filter</span></div>
+        <div class="tr"><span class="tr-from">Willow Hoop</span><span class="tr-arrow">→</span><span class="tr-to">Orbital Ring / Tension Frame</span></div>
+        <div class="tr"><span class="tr-from">Catching Bad Dreams</span><span class="tr-arrow">→</span><span class="tr-to">Catching Drift Before Slippage</span></div>
+        <div class="tr"><span class="tr-from">Thread Tension</span><span class="tr-arrow">→</span><span class="tr-to">Continuity Under Control</span></div>
+        <div class="tr"><span class="tr-from">Center Hole</span><span class="tr-arrow">→</span><span class="tr-to">Catch Point / Verification Node</span></div>
+        <div class="tr"><span class="tr-from">Feathers + Beads</span><span class="tr-arrow">→</span><span class="tr-to" style="color:var(--bone-dim);">Removed. Not this brand.</span></div>
+        <div class="tr"><span class="tr-from">Spiritual Function</span><span class="tr-arrow">→</span><span class="tr-to">Operational Mechanism. Not magic.</span></div>
+      </div>
+    </div>
+
+    <!-- Diagram + points -->
+    <div class="meta-layout r d2">
+      <div>
+        <svg class="meta-diagram" viewBox="0 0 480 480" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Outer tension ring (dashed) -->
+          <circle cx="240" cy="240" r="224" stroke="#B8926A" stroke-width="0.75" stroke-dasharray="3 7" opacity="0.35"/>
+          <!-- Main capture ring -->
+          <circle cx="240" cy="240" r="186" stroke="#B8926A" stroke-width="1.25" opacity="0.65"/>
+          <!-- Processing ring -->
+          <circle cx="240" cy="240" r="128" stroke="#6E8FA0" stroke-width="1" opacity="0.55"/>
+          <!-- Core ring -->
+          <circle cx="240" cy="240" r="66" stroke="#E2DDD5" stroke-width="0.5" opacity="0.35"/>
+          <!-- Spokes -->
+          <line x1="240" y1="54" x2="240" y2="426" stroke="#E2DDD5" stroke-width="0.4" opacity="0.18"/>
+          <line x1="54" y1="240" x2="426" y2="240" stroke="#E2DDD5" stroke-width="0.4" opacity="0.18"/>
+          <line x1="109" y1="109" x2="371" y2="371" stroke="#E2DDD5" stroke-width="0.4" opacity="0.12"/>
+          <line x1="371" y1="109" x2="109" y2="371" stroke="#E2DDD5" stroke-width="0.4" opacity="0.12"/>
+          <!-- Web quad lines -->
+          <line x1="240" y1="54" x2="426" y2="240" stroke="#B8926A" stroke-width="0.4" opacity="0.2"/>
+          <line x1="426" y1="240" x2="240" y2="426" stroke="#B8926A" stroke-width="0.4" opacity="0.2"/>
+          <line x1="240" y1="426" x2="54" y2="240" stroke="#B8926A" stroke-width="0.4" opacity="0.2"/>
+          <line x1="54" y1="240" x2="240" y2="54" stroke="#B8926A" stroke-width="0.4" opacity="0.2"/>
+          <!-- Anchor nodes -->
+          <circle cx="240" cy="54" r="4.5" fill="#B8926A" opacity="0.85"/>
+          <circle cx="426" cy="240" r="4.5" fill="#B8926A" opacity="0.85"/>
+          <circle cx="240" cy="426" r="4.5" fill="#B8926A" opacity="0.85"/>
+          <circle cx="54" cy="240" r="4.5" fill="#B8926A" opacity="0.85"/>
+          <!-- Node labels -->
+          <text x="252" y="52" font-family="DM Mono, monospace" font-size="10" fill="#E2DDD5" opacity="0.55">prompt input</text>
+          <text x="433" y="244" font-family="DM Mono, monospace" font-size="10" fill="#E2DDD5" opacity="0.55">model switch</text>
+          <text x="252" y="440" font-family="DM Mono, monospace" font-size="10" fill="#E2DDD5" opacity="0.55">output layer</text>
+          <text x="45" y="234" font-family="DM Mono, monospace" font-size="10" fill="#E2DDD5" opacity="0.55" text-anchor="end">session break</text>
+          <!-- Diagonal anchors small -->
+          <circle cx="109" cy="109" r="2.5" fill="#6E8FA0" opacity="0.6"/>
+          <circle cx="371" cy="109" r="2.5" fill="#6E8FA0" opacity="0.6"/>
+          <circle cx="371" cy="371" r="2.5" fill="#6E8FA0" opacity="0.6"/>
+          <circle cx="109" cy="371" r="2.5" fill="#6E8FA0" opacity="0.6"/>
+          <!-- Drift particles -->
+          <circle cx="165" cy="130" r="2.5" fill="#E2DDD5" opacity="0.35"/>
+          <circle cx="340" cy="148" r="2" fill="#E2DDD5" opacity="0.28"/>
+          <circle cx="382" cy="316" r="2.5" fill="#E2DDD5" opacity="0.32"/>
+          <circle cx="128" cy="348" r="2" fill="#E2DDD5" opacity="0.28"/>
+          <circle cx="300" cy="78" r="1.5" fill="#E2DDD5" opacity="0.2"/>
+          <!-- Center catch point -->
+          <circle cx="240" cy="240" r="10" fill="#B8926A" opacity="0.9"/>
+          <circle cx="240" cy="240" r="22" stroke="#B8926A" stroke-width="0.75" fill="none" opacity="0.38"/>
+          <circle cx="240" cy="240" r="38" stroke="#B8926A" stroke-width="0.4" fill="none" opacity="0.18"/>
+          <text x="240" y="274" font-family="DM Mono, monospace" font-size="9" fill="#B8926A" text-anchor="middle" opacity="0.75">CATCH POINT</text>
+          <!-- Diagram label -->
+          <text x="240" y="26" font-family="DM Mono, monospace" font-size="9" fill="#B8926A" text-anchor="middle" opacity="0.45" letter-spacing="2">DRIFT CAPTURE ARCHITECTURE</text>
+        </svg>
+      </div>
+      <div class="meta-points">
+        <div class="mp">
+          <h4 class="mp-title">Catching Fragile Signal</h4>
+          <p class="mp-body">The original dream catcher caught what might slip away. Drifty does the same for AI work — catching the fragile thread of intent before it dissolves across models, sessions, and handoffs.</p>
+        </div>
+        <div class="mp">
+          <h4 class="mp-title">Preserving Continuity</h4>
+          <p class="mp-body">The web holds its structure through tension. So does coherence. Drifty maintains the structural integrity of a workflow's intent — not as memory, but as active continuity control.</p>
+        </div>
+        <div class="mp">
+          <h4 class="mp-title">Filtering Distortion</h4>
+          <p class="mp-body">The web filters — letting some things through while catching what would harm the dreamer. Drifty filters distortion, noise, and drift from the signal of good work.</p>
+        </div>
+        <div class="mp">
+          <h4 class="mp-title">Holding Threads in Tension</h4>
+          <p class="mp-body">The structure's strength comes from balanced tension — not rigidity, not slack. Drifty holds the threads of a workflow in controlled tension so they bear weight without breaking.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     06 — VISUAL IDENTITY
+═══════════════════════════════ -->
+<section id="visual">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 06</span>
+      <h2 class="sec-title">Visual Identity Direction</h2>
+    </div>
+
+    <!-- Color palette -->
+    <p class="vi-label r">Color System</p>
+    <div class="palette r d1">
+      <div class="swatch">
+        <div class="sw" style="background:#080808;border:1px solid #2A2A2A;"></div>
+        <span class="sw-name">Void</span><span class="sw-hex">#080808</span>
+      </div>
+      <div class="swatch">
+        <div class="sw" style="background:#111111;"></div>
+        <span class="sw-name">Obsidian</span><span class="sw-hex">#111111</span>
+      </div>
+      <div class="swatch">
+        <div class="sw" style="background:#222222;"></div>
+        <span class="sw-name">Rim</span><span class="sw-hex">#222222</span>
+      </div>
+      <div class="swatch">
+        <div class="sw" style="background:#E2DDD5;"></div>
+        <span class="sw-name">Bone</span><span class="sw-hex">#E2DDD5</span>
+      </div>
+      <div class="swatch">
+        <div class="sw" style="background:#6E8FA0;"></div>
+        <span class="sw-name">Steel</span><span class="sw-hex">#6E8FA0</span>
+      </div>
+      <div class="swatch">
+        <div class="sw" style="background:#B8926A;"></div>
+        <span class="sw-name">Thread</span><span class="sw-hex">#B8926A</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Typography -->
+    <p class="vi-label r">Typography System</p>
+    <div class="type-spec-list r d1">
+      <div class="type-spec">
+        <div>
+          <span class="ts-meta-name">Display</span>
+          <span class="ts-meta-detail">Syne<br>Weight: 800<br>Use: Wordmarks, section<br>titles, hero copy</span>
+        </div>
+        <div>
+          <p style="font-family:'Syne';font-size:clamp(44px,7vw,88px);font-weight:800;letter-spacing:-0.03em;line-height:0.9;color:var(--bone);">DRIFTY</p>
+          <p style="font-family:'Syne';font-size:22px;font-weight:700;color:var(--bone);margin-top:16px;letter-spacing:-0.01em;">Catch your drift. Hold the thread.</p>
+        </div>
+      </div>
+      <div class="type-spec">
+        <div>
+          <span class="ts-meta-name">Body</span>
+          <span class="ts-meta-detail">DM Sans<br>Weight: 300–500<br>Use: Body copy, UI text,<br>explanatory content</span>
+        </div>
+        <div>
+          <p style="font-size:18px;font-weight:400;color:var(--bone);line-height:1.65;margin-bottom:10px;">When ideas travel across prompts, models, and workflows, they drift. Good thinking loses its thread. Outputs degrade. Context slips. Drifty holds the line.</p>
+          <p style="font-size:14px;font-weight:300;color:var(--bone-dim);line-height:1.65;">Drift control for AI workflows. Continuity infrastructure. Result integrity.</p>
+        </div>
+      </div>
+      <div class="type-spec">
+        <div>
+          <span class="ts-meta-name">Technical</span>
+          <span class="ts-meta-detail">DM Mono<br>Weight: 300–400<br>Use: Labels, section numbers,<br>metadata, tags, CTAs</span>
+        </div>
+        <div>
+          <p style="font-family:'DM Mono';font-size:13px;color:var(--thread);letter-spacing:0.1em;text-transform:uppercase;line-height:2.2;">DRIFT — 01 — CONTINUITY LAYER<br><span style="color:var(--bone-dim);">signal-preservation / result-integrity / coherence-control</span><br><span style="color:var(--steel);">status: active / thread: held / catch-point: live</span></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Motifs -->
+    <p class="vi-label r">Graphic Motifs</p>
+    <div class="motif-grid r d1">
+      <div class="motif">
+        <svg viewBox="0 0 100 100" style="width:62%;opacity:0.72;" fill="none">
+          <circle cx="50" cy="50" r="44" stroke="#B8926A" stroke-width="1.25"/>
+          <circle cx="50" cy="50" r="28" stroke="#6E8FA0" stroke-width="0.75"/>
+          <line x1="6" y1="50" x2="94" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="50" y1="6" x2="50" y2="94" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="19" y1="19" x2="81" y2="81" stroke="#E2DDD5" stroke-width="0.4" opacity="0.18"/>
+          <line x1="81" y1="19" x2="19" y2="81" stroke="#E2DDD5" stroke-width="0.4" opacity="0.18"/>
+          <circle cx="50" cy="50" r="5" fill="#B8926A"/>
+        </svg>
+        <span class="motif-lbl">Orbital Ring</span>
+      </div>
+      <div class="motif">
+        <svg viewBox="0 0 100 100" style="width:62%;opacity:0.72;" fill="none">
+          <line x1="12" y1="12" x2="88" y2="88" stroke="#B8926A" stroke-width="0.75"/>
+          <line x1="88" y1="12" x2="12" y2="88" stroke="#B8926A" stroke-width="0.75"/>
+          <line x1="50" y1="8" x2="50" y2="92" stroke="#E2DDD5" stroke-width="0.4" opacity="0.38"/>
+          <line x1="8" y1="50" x2="92" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.38"/>
+          <circle cx="50" cy="50" r="6" stroke="#E2DDD5" stroke-width="0.75" fill="none"/>
+          <circle cx="50" cy="50" r="2.5" fill="#E2DDD5" opacity="0.8"/>
+          <circle cx="50" cy="8" r="2" fill="#B8926A" opacity="0.7"/>
+          <circle cx="92" cy="50" r="2" fill="#B8926A" opacity="0.7"/>
+          <circle cx="50" cy="92" r="2" fill="#B8926A" opacity="0.7"/>
+          <circle cx="8" cy="50" r="2" fill="#B8926A" opacity="0.7"/>
+        </svg>
+        <span class="motif-lbl">Tension Cross</span>
+      </div>
+      <div class="motif">
+        <svg viewBox="0 0 100 100" style="width:62%;opacity:0.72;" fill="none">
+          <polygon points="50,6 94,50 50,94 6,50" stroke="#B8926A" stroke-width="1.25"/>
+          <polygon points="50,28 72,50 50,72 28,50" stroke="#6E8FA0" stroke-width="0.75" opacity="0.7"/>
+          <line x1="6" y1="50" x2="94" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.25"/>
+          <line x1="50" y1="6" x2="50" y2="94" stroke="#E2DDD5" stroke-width="0.4" opacity="0.25"/>
+          <circle cx="50" cy="28" r="2" fill="#6E8FA0" opacity="0.75"/>
+          <circle cx="72" cy="50" r="2" fill="#6E8FA0" opacity="0.75"/>
+          <circle cx="50" cy="72" r="2" fill="#6E8FA0" opacity="0.75"/>
+          <circle cx="28" cy="50" r="2" fill="#6E8FA0" opacity="0.75"/>
+          <circle cx="50" cy="50" r="4" fill="#B8926A"/>
+        </svg>
+        <span class="motif-lbl">Signal Net</span>
+      </div>
+      <div class="motif">
+        <svg viewBox="0 0 100 100" style="width:62%;opacity:0.72;" fill="none">
+          <line x1="16" y1="16" x2="84" y2="16" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="16" y1="33" x2="84" y2="33" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="16" y1="50" x2="84" y2="50" stroke="#B8926A" stroke-width="0.75" opacity="0.65"/>
+          <line x1="16" y1="67" x2="84" y2="67" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="16" y1="84" x2="84" y2="84" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="16" y1="16" x2="16" y2="84" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="33" y1="16" x2="33" y2="84" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="50" y1="16" x2="50" y2="84" stroke="#B8926A" stroke-width="0.75" opacity="0.65"/>
+          <line x1="67" y1="16" x2="67" y2="84" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <line x1="84" y1="16" x2="84" y2="84" stroke="#E2DDD5" stroke-width="0.4" opacity="0.28"/>
+          <circle cx="50" cy="50" r="4.5" fill="#B8926A" opacity="0.9"/>
+        </svg>
+        <span class="motif-lbl">Catch Grid</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     07 — LOGO CONCEPTS
+═══════════════════════════════ -->
+<section id="logomark">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 07</span>
+      <h2 class="sec-title">Logo &amp; Mark Concepts</h2>
+      <p class="sec-intro">Five conceptual directions. Not final artwork — smart starting points for design development.</p>
+    </div>
+
+    <div class="logo-grid r d1">
+      <!-- 01 Ring + Thread -->
+      <div class="logo-cell">
+        <svg viewBox="0 0 100 100" class="logo-svg" fill="none">
+          <circle cx="50" cy="50" r="44" stroke="#B8926A" stroke-width="1.5"/>
+          <line x1="6" y1="50" x2="94" y2="50" stroke="#E2DDD5" stroke-width="0.7" opacity="0.48"/>
+          <line x1="50" y1="6" x2="50" y2="94" stroke="#E2DDD5" stroke-width="0.7" opacity="0.48"/>
+          <line x1="19" y1="19" x2="81" y2="81" stroke="#E2DDD5" stroke-width="0.7" opacity="0.32"/>
+          <line x1="81" y1="19" x2="19" y2="81" stroke="#E2DDD5" stroke-width="0.7" opacity="0.32"/>
+          <circle cx="50" cy="50" r="5.5" fill="#B8926A"/>
+          <circle cx="50" cy="50" r="12" stroke="#B8926A" stroke-width="0.75" fill="none" opacity="0.38"/>
+        </svg>
+        <span class="lc-num">01</span>
+        <h4 class="lc-name">Ring + Thread</h4>
+        <p class="lc-desc">A clean ring with thread lines and centered catch node. Precision and balance in one mark.</p>
+      </div>
+
+      <!-- 02 Tension Monogram -->
+      <div class="logo-cell">
+        <svg viewBox="0 0 100 100" class="logo-svg" fill="none">
+          <line x1="22" y1="12" x2="22" y2="88" stroke="#E2DDD5" stroke-width="1.75"/>
+          <path d="M22,12 C52,12 78,26 78,50 C78,74 52,88 22,88" stroke="#B8926A" stroke-width="1.5"/>
+          <line x1="22" y1="24" x2="60" y2="28" stroke="#E2DDD5" stroke-width="0.45" opacity="0.42"/>
+          <line x1="22" y1="38" x2="72" y2="44" stroke="#E2DDD5" stroke-width="0.45" opacity="0.42"/>
+          <line x1="22" y1="50" x2="76" y2="50" stroke="#E2DDD5" stroke-width="0.45" opacity="0.42"/>
+          <line x1="22" y1="62" x2="72" y2="56" stroke="#E2DDD5" stroke-width="0.45" opacity="0.42"/>
+          <line x1="22" y1="76" x2="60" y2="72" stroke="#E2DDD5" stroke-width="0.45" opacity="0.42"/>
+          <circle cx="22" cy="12" r="2.5" fill="#B8926A"/>
+          <circle cx="22" cy="88" r="2.5" fill="#B8926A"/>
+        </svg>
+        <span class="lc-num">02</span>
+        <h4 class="lc-name">Tension Monogram</h4>
+        <p class="lc-desc">The letter D formed by a tensioned arc anchored to a spine. The structure itself is the meaning.</p>
+      </div>
+
+      <!-- 03 Mesh Capture -->
+      <div class="logo-cell">
+        <svg viewBox="0 0 100 100" class="logo-svg" fill="none">
+          <polygon points="50,6 94,36 78,92 22,92 6,36" stroke="#B8926A" stroke-width="1.5"/>
+          <polygon points="50,24 78,44 68,78 32,78 22,44" stroke="#6E8FA0" stroke-width="0.75" opacity="0.65"/>
+          <line x1="50" y1="6" x2="50" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.38"/>
+          <line x1="94" y1="36" x2="50" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.38"/>
+          <line x1="78" y1="92" x2="50" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.38"/>
+          <line x1="22" y1="92" x2="50" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.38"/>
+          <line x1="6" y1="36" x2="50" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.38"/>
+          <circle cx="50" cy="50" r="5" fill="#B8926A"/>
+        </svg>
+        <span class="lc-num">03</span>
+        <h4 class="lc-name">Mesh Capture</h4>
+        <p class="lc-desc">A geometric web structure — outer and inner frames converging on a central catch node. Diagrammatic, architectural.</p>
+      </div>
+
+      <!-- 04 Minimal Orbital -->
+      <div class="logo-cell">
+        <svg viewBox="0 0 100 100" class="logo-svg" fill="none">
+          <circle cx="50" cy="50" r="44" stroke="#6E8FA0" stroke-width="0.85" opacity="0.48"/>
+          <circle cx="50" cy="50" r="30" stroke="#6E8FA0" stroke-width="0.85" opacity="0.65"/>
+          <circle cx="50" cy="50" r="16" stroke="#B8926A" stroke-width="1.5"/>
+          <circle cx="80" cy="50" r="3.5" fill="#E2DDD5"/>
+          <line x1="66" y1="50" x2="80" y2="50" stroke="#E2DDD5" stroke-width="0.85" opacity="0.55"/>
+          <circle cx="50" cy="50" r="5.5" fill="#B8926A"/>
+          <circle cx="50" cy="50" r="10" stroke="#B8926A" stroke-width="0.5" fill="none" opacity="0.3"/>
+        </svg>
+        <span class="lc-num">04</span>
+        <h4 class="lc-name">Minimal Orbital</h4>
+        <p class="lc-desc">Concentric orbital rings with a tethered catch point. Highly scalable, strong at icon size.</p>
+      </div>
+
+      <!-- 05 Signal Net -->
+      <div class="logo-cell">
+        <svg viewBox="0 0 100 100" class="logo-svg" fill="none">
+          <polygon points="50,6 94,50 50,94 6,50" stroke="#B8926A" stroke-width="1.5"/>
+          <polygon points="50,28 72,50 50,72 28,50" stroke="#6E8FA0" stroke-width="0.75" opacity="0.65"/>
+          <line x1="6" y1="50" x2="94" y2="50" stroke="#E2DDD5" stroke-width="0.4" opacity="0.24"/>
+          <line x1="50" y1="6" x2="50" y2="94" stroke="#E2DDD5" stroke-width="0.4" opacity="0.24"/>
+          <circle cx="50" cy="28" r="2.5" fill="#E2DDD5" opacity="0.7"/>
+          <circle cx="72" cy="50" r="2.5" fill="#E2DDD5" opacity="0.7"/>
+          <circle cx="50" cy="72" r="2.5" fill="#E2DDD5" opacity="0.7"/>
+          <circle cx="28" cy="50" r="2.5" fill="#E2DDD5" opacity="0.7"/>
+          <circle cx="50" cy="50" r="5.5" fill="#B8926A"/>
+        </svg>
+        <span class="lc-num">05</span>
+        <h4 class="lc-name">Signal Net</h4>
+        <p class="lc-desc">A diamond form with layered internal structure and catch nodes. Angular, precise, architecturally solid.</p>
+      </div>
+    </div>
+
+    <div class="pull-quote r d2" style="border-left-color:var(--steel);">
+      <p style="font-size:clamp(14px,1.5vw,17px);">
+        <span style="font-family:var(--ff-m);font-size:10px;color:var(--thread);letter-spacing:0.12em;text-transform:uppercase;display:block;margin-bottom:14px;">Direction Recommendation</span>
+        Concepts 01 and 04 are the strongest starting points for commercial development. Both scale cleanly to icon size, hold strong in black-and-white applications, and carry the catch/continuity logic without requiring explanation. Concept 02 (Tension Monogram) is the highest-risk, highest-reward direction — best explored as a secondary mark or wordmark treatment once the primary system is locked.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     08 — VOICE & MESSAGING
+═══════════════════════════════ -->
+<section id="voice">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 08</span>
+      <h2 class="sec-title">Voice &amp; Messaging</h2>
+    </div>
+
+    <!-- Tone pillars -->
+    <div class="tone-three r d1">
+      <div class="tone-cell">
+        <span class="tone-num">Tone 01</span>
+        <h4 class="tone-title">Sharp</h4>
+        <p class="tone-body">Every word earns its place. Copy is precise, economical, and never padded. When in doubt, cut.</p>
+      </div>
+      <div class="tone-cell">
+        <span class="tone-num">Tone 02</span>
+        <h4 class="tone-title">Grounded</h4>
+        <p class="tone-body">Mechanism over magic. The product does something real. The copy explains what, not "how incredible" it is.</p>
+      </div>
+      <div class="tone-cell">
+        <span class="tone-num">Tone 03</span>
+        <h4 class="tone-title">Controlled</h4>
+        <p class="tone-body">Never oversells. Never hypes. Confidence through restraint — the brand doesn't need to shout to be heard.</p>
+      </div>
+    </div>
+
+    <!-- Do / Don't -->
+    <div class="voice-two r d2">
+      <div class="voice-panel">
+        <span class="voice-panel-label">Say This</span>
+        <ul class="vlist say">
+          <li>Catch drift before it compounds.</li>
+          <li>Hold the thread. Keep the signal.</li>
+          <li>Drift control for AI work.</li>
+          <li>Continuity that doesn't require constant rescue.</li>
+          <li>Built to catch what fragile thinking loses first.</li>
+          <li>Stop slippage before it becomes output damage.</li>
+          <li>Keep intent intact.</li>
+          <li>Where good thinking holds.</li>
+        </ul>
+      </div>
+      <div class="voice-panel">
+        <span class="voice-panel-label dim">Not This</span>
+        <ul class="vlist">
+          <li>Revolutionizing how you work with AI.</li>
+          <li>The AI-powered platform that transforms your workflow.</li>
+          <li>Unlock your full potential.</li>
+          <li>Seamless, effortless, and powerful.</li>
+          <li>Next-generation intelligence layer.</li>
+          <li>Your AI journey starts here.</li>
+          <li>We make AI magical.</li>
+          <li>Be more productive with AI.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Headlines -->
+    <p class="vi-label r" style="margin-bottom:0;">Headline System</p>
+    <div class="hl-list r d1">
+      <div class="hl-item">
+        <span class="hl-rank">01</span>
+        <span class="hl-text primary">Catch your drift.</span>
+        <span class="hl-note">Primary — Frontrunner</span>
+      </div>
+      <div class="hl-item">
+        <span class="hl-rank">02</span>
+        <span class="hl-text">Hold the thread.</span>
+        <span class="hl-note">Secondary — clean, evocative</span>
+      </div>
+      <div class="hl-item">
+        <span class="hl-rank">03</span>
+        <span class="hl-text">Keep the signal.</span>
+        <span class="hl-note">Technical audience</span>
+      </div>
+      <div class="hl-item">
+        <span class="hl-rank">04</span>
+        <span class="hl-text">Catch drift before good work slips.</span>
+        <span class="hl-note">Explanatory — landing pages</span>
+      </div>
+      <div class="hl-item">
+        <span class="hl-rank">05</span>
+        <span class="hl-text">Where good thinking holds.</span>
+        <span class="hl-note">Brand statement — premium</span>
+      </div>
+      <div class="hl-item">
+        <span class="hl-rank">06</span>
+        <span class="hl-text">Continuity isn't automatic. Neither is Drifty.</span>
+        <span class="hl-note">Campaign — confident, earned</span>
+      </div>
+    </div>
+
+    <!-- CTAs -->
+    <div class="r d2" style="margin-top:48px;">
+      <p class="vi-label" style="margin-bottom:20px;">CTA Options</p>
+      <div class="cta-row">
+        <span class="cta hi">Catch Drift Early</span>
+        <span class="cta">Start with Drifty</span>
+        <span class="cta">Hold the Thread</span>
+        <span class="cta">Get Early Access</span>
+        <span class="cta">See Drifty in Action</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     09 — COMMERCIAL READINESS
+═══════════════════════════════ -->
+<section id="commercial">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 09</span>
+      <h2 class="sec-title">Commercial Readiness</h2>
+      <p class="sec-intro">How Drifty's brand system performs across commercial surfaces.</p>
+    </div>
+    <div class="comm-grid r d1">
+      <div class="comm-cell">
+        <svg viewBox="0 0 40 40" class="comm-icon" fill="none">
+          <rect x="4" y="6" width="32" height="28" rx="1" stroke="#B8926A" stroke-width="1"/>
+          <line x1="4" y1="14" x2="36" y2="14" stroke="#B8926A" stroke-width="0.75" opacity="0.45"/>
+          <rect x="8" y="18" width="10" height="8" rx="0.5" fill="#B8926A" opacity="0.28"/>
+          <line x1="22" y1="18" x2="32" y2="18" stroke="#6E8FA0" stroke-width="0.75" opacity="0.45"/>
+          <line x1="22" y1="22" x2="28" y2="22" stroke="#6E8FA0" stroke-width="0.75" opacity="0.45"/>
+        </svg>
+        <h4 class="comm-title">SaaS Homepage</h4>
+        <p class="comm-body">Dark-premium hero with wordmark large. Lead with "Catch your drift." Explain the mechanism in two sentences. One CTA: "Catch Drift Early." Below fold: drift architecture diagram + feature proof.</p>
+      </div>
+      <div class="comm-cell">
+        <svg viewBox="0 0 40 40" class="comm-icon" fill="none">
+          <rect x="12" y="2" width="16" height="36" rx="2" stroke="#B8926A" stroke-width="1"/>
+          <line x1="17" y1="8" x2="23" y2="8" stroke="#B8926A" stroke-width="0.75" opacity="0.45"/>
+          <rect x="15" y="13" width="10" height="16" rx="0.5" fill="#B8926A" opacity="0.14"/>
+          <line x1="14" y1="33" x2="26" y2="33" stroke="#6E8FA0" stroke-width="0.75" opacity="0.45"/>
+        </svg>
+        <h4 class="comm-title">App Shell</h4>
+        <p class="comm-body">Sidebar with the orbital mark at 24px. Near-black UI, bone text, thread-color accents on drift scores and catch events. DM Mono for data readouts, Syne for modal headers.</p>
+      </div>
+      <div class="comm-cell">
+        <svg viewBox="0 0 40 40" class="comm-icon" fill="none">
+          <rect x="2" y="8" width="36" height="28" rx="1" stroke="#B8926A" stroke-width="1"/>
+          <circle cx="20" cy="22" r="8" stroke="#6E8FA0" stroke-width="0.75"/>
+          <circle cx="20" cy="22" r="3" fill="#B8926A" opacity="0.55"/>
+          <line x1="20" y1="8" x2="20" y2="14" stroke="#B8926A" stroke-width="0.75" opacity="0.5"/>
+        </svg>
+        <h4 class="comm-title">Social Assets</h4>
+        <p class="comm-body">Square format, near-black, wordmark or orbital mark centered. One headline line in Syne 700. "Catch your drift." is a standalone 1:1 social visual — no image required.</p>
+      </div>
+      <div class="comm-cell">
+        <svg viewBox="0 0 40 40" class="comm-icon" fill="none">
+          <rect x="2" y="5" width="36" height="30" rx="1" stroke="#B8926A" stroke-width="1"/>
+          <line x1="2" y1="15" x2="38" y2="15" stroke="#B8926A" stroke-width="0.75" opacity="0.3"/>
+          <line x1="14" y1="5" x2="14" y2="35" stroke="#B8926A" stroke-width="0.75" opacity="0.3"/>
+          <text x="4" y="13" font-family="Syne, sans-serif" font-size="5" fill="#E2DDD5" opacity="0.65">DRIFTY</text>
+        </svg>
+        <h4 class="comm-title">Pitch Deck Cover</h4>
+        <p class="comm-body">"DRIFTY" large on a near-black slide, orbital mark to the right, tagline at bottom in mono. Bone text, thread accent. Clean enough for any stage investor room.</p>
+      </div>
+      <div class="comm-cell">
+        <svg viewBox="0 0 40 40" class="comm-icon" fill="none">
+          <rect x="4" y="4" width="32" height="32" rx="1" stroke="#B8926A" stroke-width="1"/>
+          <line x1="4" y1="17" x2="36" y2="17" stroke="#B8926A" stroke-width="0.75" opacity="0.28"/>
+          <rect x="9" y="8" width="9" height="5" fill="#B8926A" opacity="0.38"/>
+          <line x1="22" y1="9" x2="30" y2="9" stroke="#E2DDD5" stroke-width="0.75" opacity="0.38"/>
+          <line x1="22" y1="12" x2="27" y2="12" stroke="#E2DDD5" stroke-width="0.75" opacity="0.28"/>
+          <line x1="9" y1="22" x2="31" y2="22" stroke="#6E8FA0" stroke-width="0.5" opacity="0.35"/>
+          <line x1="9" y1="26" x2="26" y2="26" stroke="#6E8FA0" stroke-width="0.5" opacity="0.28"/>
+        </svg>
+        <h4 class="comm-title">Paid Landing Page</h4>
+        <p class="comm-body">Problem-first copy flow: name the drift problem → introduce Drifty → show mechanism → social proof → single CTA. Bone-on-black, thread-colored proof points. The diagram IS the story.</p>
+      </div>
+      <div class="comm-cell">
+        <svg viewBox="0 0 40 40" class="comm-icon" fill="none">
+          <circle cx="20" cy="14" r="8" stroke="#B8926A" stroke-width="1"/>
+          <circle cx="20" cy="14" r="3" fill="#B8926A" opacity="0.45"/>
+          <line x1="14" y1="22" x2="8" y2="36" stroke="#6E8FA0" stroke-width="0.75" opacity="0.55"/>
+          <line x1="26" y1="22" x2="32" y2="36" stroke="#6E8FA0" stroke-width="0.75" opacity="0.55"/>
+          <line x1="8" y1="36" x2="32" y2="36" stroke="#6E8FA0" stroke-width="0.75" opacity="0.38"/>
+        </svg>
+        <h4 class="comm-title">Launch Campaign</h4>
+        <p class="comm-body">"Catch Your Drift." as the launch line. Three-part sequence: the problem, the mechanism, the product. Minimal creative. The orbital mark as a visual anchor across all formats.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     10 — BRAND EXTENSION
+═══════════════════════════════ -->
+<section id="extension">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 10</span>
+      <h2 class="sec-title">Brand Extension</h2>
+      <p class="sec-intro">A naming architecture that scales without straining. Built on a root that owns the problem space.</p>
+    </div>
+
+    <div class="ext-grid r d1">
+      <div class="ext-card">
+        <div class="ext-name">Drifty</div>
+        <div class="ext-desc">Core product. The primary drift-control system.</div>
+      </div>
+      <div class="ext-card">
+        <div class="ext-name">Drifty Studio</div>
+        <div class="ext-desc">Professional workspace. Power tools for teams.</div>
+      </div>
+      <div class="ext-card">
+        <div class="ext-name">Drifty Flow</div>
+        <div class="ext-desc">Workflow-native drift layer. Integrated, continuous.</div>
+      </div>
+      <div class="ext-card">
+        <div class="ext-name">Drifty Signal</div>
+        <div class="ext-desc">Signal monitoring and quality scoring module.</div>
+      </div>
+      <div class="ext-card">
+        <div class="ext-name">Drifty Thread</div>
+        <div class="ext-desc">Continuity tracking over long-form AI sessions.</div>
+      </div>
+      <div class="ext-card">
+        <div class="ext-name">Drifty Watch</div>
+        <div class="ext-desc">Monitoring layer. Real-time drift detection.</div>
+      </div>
+      <div class="ext-card">
+        <div class="ext-name">Drifty for Teams</div>
+        <div class="ext-desc">Collaborative drift control. Shared context.</div>
+      </div>
+    </div>
+
+    <div style="background:var(--surface);padding:28px 40px;border-top:1px solid var(--rim);" class="r d2">
+      <p style="font-family:var(--ff-m);font-size:11px;color:var(--bone-dim);letter-spacing:0.08em;line-height:1.9;">The root word "Drifty" acts as both standalone product and parent brand. The naming system works because the root owns the problem space — any modifier clarifies scope without requiring explanation. The parent brand does the heavy lifting; extensions ride that equity cleanly.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════
+     11 — CLOSING
+═══════════════════════════════ -->
+<section id="closing">
+  <div class="wrap">
+    <div class="sec-head r">
+      <span class="sec-num">&mdash; 11</span>
+      <h2 class="sec-title">Closing Recommendation</h2>
+    </div>
+
+    <p class="close-statement r d1">
+      Drifty is a <em>rare</em> brand: the name owns the problem space, the metaphor system translates into modern system logic without decoration, and the visual direction is premium-ready without requiring a large design budget to prove it. This is a brand that should feel distinct, investable, and ready to build.
+    </p>
+
+    <div class="close-rec r d2">
+      <div class="close-cell">
+        <p style="font-family:var(--ff-m);font-size:10px;color:var(--thread);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:20px;">Strongest Brand Expression</p>
+        <p style="font-family:var(--ff-d);font-size:clamp(28px,3.5vw,40px);font-weight:800;color:var(--bone);letter-spacing:-0.02em;line-height:1.05;margin-bottom:20px;">DRIFTY<br><span style="color:var(--thread);">Catch your drift.</span></p>
+        <p style="font-size:14px;color:var(--bone-dim);line-height:1.7;">This combination — wordmark plus primary line — is the sharpest expression of the brand. It's complete in two words and six. It names the product, names the problem, and signals the solution. Nothing needs to be added.</p>
+      </div>
+      <div class="close-cell">
+        <p style="font-family:var(--ff-m);font-size:10px;color:var(--steel);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:20px;">Next Steps</p>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            <span style="font-family:var(--ff-m);font-size:9px;color:var(--thread);flex-shrink:0;margin-top:3px;">01</span>
+            <p style="font-size:13px;color:var(--bone-dim);line-height:1.6;">Develop Concepts 01 and 04 into refined final logo options with full lockup variations — horizontal, stacked, icon-only.</p>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            <span style="font-family:var(--ff-m);font-size:9px;color:var(--thread);flex-shrink:0;margin-top:3px;">02</span>
+            <p style="font-size:13px;color:var(--bone-dim);line-height:1.6;">Produce a one-page brand standards document covering logo usage rules, color system, and typography hierarchy.</p>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            <span style="font-family:var(--ff-m);font-size:9px;color:var(--thread);flex-shrink:0;margin-top:3px;">03</span>
+            <p style="font-size:13px;color:var(--bone-dim);line-height:1.6;">Build the SaaS homepage against this spec — the drift capture diagram is the hero asset, not a product screenshot.</p>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            <span style="font-family:var(--ff-m);font-size:9px;color:var(--thread);flex-shrink:0;margin-top:3px;">04</span>
+            <p style="font-size:13px;color:var(--bone-dim);line-height:1.6;">Validate "Catch your drift." with the target audience — confirm it reads as mechanism before metaphor for a technical reader.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="close-final r d3">
+      <div>
+        <p class="close-wm">DRIFTY</p>
+        <p class="close-tag">Catch your drift.</p>
+      </div>
+      <div style="text-align:right;">
+        <p style="font-family:var(--ff-m);font-size:9px;color:var(--bone-dim);letter-spacing:0.1em;line-height:2;text-transform:uppercase;">Brand Presentation<br>2025<br>All concepts proprietary</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+// === CANVAS NETWORK ===
+const canvas = document.getElementById('bgc');
+const ctx = canvas.getContext('2d');
+let nodes = [], raf = null;
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+function initNodes() {
+  nodes = [];
+  const count = Math.floor((canvas.width * canvas.height) / 30000);
+  for (let i = 0; i < Math.min(count, 55); i++) {
+    nodes.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.22,
+      vy: (Math.random() - 0.5) * 0.22,
+      r: Math.random() * 1.1 + 0.4
+    });
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const D = 190;
+
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dx = nodes[i].x - nodes[j].x;
+      const dy = nodes[i].y - nodes[j].y;
+      const dist = dx * dx + dy * dy;
+      if (dist < D * D) {
+        const d = Math.sqrt(dist);
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(110,143,160,${0.075 * (1 - d / D)})`;
+        ctx.lineWidth = 0.45;
+        ctx.moveTo(nodes[i].x, nodes[i].y);
+        ctx.lineTo(nodes[j].x, nodes[j].y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  for (const n of nodes) {
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(184,146,106,0.22)';
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fill();
+    n.x += n.vx; n.y += n.vy;
+    if (n.x < 0 || n.x > canvas.width)  n.vx *= -1;
+    if (n.y < 0 || n.y > canvas.height) n.vy *= -1;
+  }
+
+  raf = requestAnimationFrame(draw);
+}
+
+resize(); initNodes(); draw();
+window.addEventListener('resize', () => { resize(); initNodes(); });
+
+// Pause canvas when hero out of view
+const heroEl = document.getElementById('hero');
+new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting) { if (!raf) draw(); }
+  else { cancelAnimationFrame(raf); raf = null; }
+}).observe(heroEl);
+
+// === SCROLL REVEAL ===
+const revEls = document.querySelectorAll('.r');
+new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('on'); });
+}, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }).observe;
+
+// Use forEach instead
+const revObs = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('on'); });
+}, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+revEls.forEach(el => revObs.observe(el));
+</script>
+</body>
+</html>
