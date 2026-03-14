@@ -1,6 +1,6 @@
 // Drifty — Drift Detection Engine v1
 // Detects constraint violations, instruction drift, scope expansion, incomplete task chains
-// Returns a fidelity score (0–100) and a structured drift result
+// Returns a alignment score (0–100) and a structured drift result
 
 // ── CONSTANTS ────────────────────────────────────────────────────────────────
 const STOP = new Set([
@@ -123,9 +123,9 @@ function checkIncompleteTasks(prevSession, currPrompt) {
 }
 
 // ── FIDELITY SCORE ────────────────────────────────────────────────────────────
-// Score 0–100 representing thread fidelity for this session
+// Score 0–100 representing thread alignment for this session
 // Higher = more faithful to the thread brief
-function computeFidelityScore({ coverage, violations, scopeExpansion, incompleteTasks }) {
+function computeAlignmentScore({ coverage, violations, scopeExpansion, incompleteTasks }) {
   let score = 100;
 
   // Constraint violations are the most serious
@@ -147,13 +147,13 @@ function computeFidelityScore({ coverage, violations, scopeExpansion, incomplete
 }
 
 // ── SEVERITY CALCULATOR ───────────────────────────────────────────────────────
-function calcSeverity(flags, fidelityScore) {
+function calcSeverity(flags, alignmentScore) {
   const hasHigh = flags.some(f => f.severity === 'high');
   const hasMedium = flags.some(f => f.severity === 'medium');
 
-  if (hasHigh || fidelityScore < 40) return 'high';
-  if (hasMedium || fidelityScore < 65) return 'medium';
-  if (flags.length > 0 || fidelityScore < 85) return 'low';
+  if (hasHigh || alignmentScore < 40) return 'high';
+  if (hasMedium || alignmentScore < 65) return 'medium';
+  if (flags.length > 0 || alignmentScore < 85) return 'low';
   return 'none';
 }
 
@@ -170,7 +170,7 @@ function calcSeverity(flags, fidelityScore) {
  *   drift: boolean,
  *   severity: "high" | "medium" | "low" | "none",
  *   reason: string,
- *   score: number,          // fidelity score 0–100
+ *   score: number,          // alignment score 0–100
  *   flags: DriftFlag[],
  *   details: {
  *     coverage: number,       // % brief keywords in current prompt
@@ -194,7 +194,7 @@ export function analyzeDrift(previousSession, currentSession, thread) {
       flags.push({
         type: 'CONSTRAINT_VIOLATION',
         severity: 'high',
-        detail: `Constraint violated: "${constraint.slice(0, 60)}"`,
+        detail: `Boundary crossed: "${constraint.slice(0, 60)}"`,
         constraint,
       });
     }
@@ -206,7 +206,7 @@ export function analyzeDrift(previousSession, currentSession, thread) {
     flags.push({
       type: 'INSTRUCTION_DRIFT',
       severity: 'medium',
-      detail: `Only ${driftCheck.coverage}% keyword overlap with thread objective`,
+      detail: `Low topic overlap with thread brief (${driftCheck.coverage}% match)`,
       coverage: driftCheck.coverage,
     });
   }
@@ -217,7 +217,7 @@ export function analyzeDrift(previousSession, currentSession, thread) {
     flags.push({
       type: 'SCOPE_EXPANSION',
       severity: 'medium',
-      detail: `${scopeCheck.ratio}% of prompt introduces topics outside thread scope`,
+      detail: `Most of this prompt is off-topic — new subjects not in your brief`,
       newTopics: scopeCheck.newTopics,
     });
   }
@@ -228,7 +228,7 @@ export function analyzeDrift(previousSession, currentSession, thread) {
     flags.push({
       type: 'INCOMPLETE_TASKS',
       severity: 'low',
-      detail: `Prior response had unresolved items not addressed in new prompt`,
+      detail: `Previous conversation had open items that weren't carried forward`,
       signals: taskCheck.signals,
     });
   }
@@ -239,12 +239,12 @@ export function analyzeDrift(previousSession, currentSession, thread) {
     flags.push({
       type: 'MODEL_SWITCH',
       severity: 'low',
-      detail: `Switched from ${previousSession.model} to ${currentSession.model}`,
+      detail: `Model changed: ${previousSession.model} → ${currentSession.model}`,
     });
   }
 
-  // ── Fidelity score ────────────────────────────────────────────────────────
-  const fidelityScore = computeFidelityScore({
+  // ── Alignment score ────────────────────────────────────────────────────────
+  const alignmentScore = computeAlignmentScore({
     coverage: driftCheck.coverage,
     violations: violatedConstraints.length,
     scopeExpansion: scopeCheck.ratio,
@@ -252,9 +252,9 @@ export function analyzeDrift(previousSession, currentSession, thread) {
   });
 
   const drift = flags.filter(f => f.severity !== 'low').length > 0;
-  const severity = calcSeverity(flags, fidelityScore);
+  const severity = calcSeverity(flags, alignmentScore);
 
-  let reason = 'Thread on track';
+  let reason = 'On track — no drift detected';
   if (flags.length > 0) {
     const primary = flags.find(f => f.severity === 'high')
       || flags.find(f => f.severity === 'medium')
@@ -266,7 +266,7 @@ export function analyzeDrift(previousSession, currentSession, thread) {
     drift,
     severity,
     reason,
-    score: fidelityScore,
+    score: alignmentScore,
     flagCount: flags.length,
     flags,
     details: {
@@ -277,4 +277,4 @@ export function analyzeDrift(previousSession, currentSession, thread) {
   };
 }
 
-export { computeFidelityScore, checkConstraintViolation };
+export { computeAlignmentScore, checkConstraintViolation };

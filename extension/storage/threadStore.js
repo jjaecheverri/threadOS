@@ -1,11 +1,18 @@
 // Drifty — Thread Storage (chrome.storage.local adapter)
 
-const STORE_KEY = 'tos_sentinel_threads';
+const STORE_KEY = 'drifty_threads';
 const VERSION   = 1;
 
 export const ThreadStore = {
 
   async init() {
+    // Migrate from old storage key if needed
+    const oldKey = 'tos_sentinel_threads';
+    const oldData = await chrome.storage.local.get(oldKey);
+    if (oldData[oldKey] && !(await this._load())) {
+      await chrome.storage.local.set({ [STORE_KEY]: oldData[oldKey] });
+      await chrome.storage.local.remove(oldKey);
+    }
     const data = await this._load();
     if (!data) {
       await chrome.storage.local.set({ [STORE_KEY]: { version: VERSION, threads: {} } });
