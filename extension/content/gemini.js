@@ -62,12 +62,12 @@ async function captureSession({ model, prompt, response }) {
 
 // ── PANEL COMMUNICATION ───────────────────────────────────────────────────────
 function notifyPanel(msg) {
-  const iframe = document.getElementById('tos-panel-frame');
-  iframe?.contentWindow?.postMessage({ source: 'tos-content', ...msg }, '*');
+  const iframe = document.getElementById('drifty-panel-frame');
+  iframe?.contentWindow?.postMessage({ source: 'drifty-content', ...msg }, '*');
 }
 
 window.addEventListener('message', e => {
-  if (e.data?.source !== 'tos-panel') return;
+  if (e.data?.source !== 'drifty-panel') return;
   if (e.data.type === 'SET_THREAD') _threadId = e.data.threadId;
   if (e.data.type === 'REQUEST_STATE') pushStateToPanel();
 });
@@ -89,7 +89,7 @@ function injectPanel() {
 
   // Panel iframe
   const iframe = document.createElement('iframe');
-  iframe.id = 'tos-panel-frame';
+  iframe.id = 'drifty-panel-frame';
   iframe.src = chrome.runtime.getURL('panel.html');
   Object.assign(iframe.style, {
     position: 'fixed',
@@ -108,7 +108,7 @@ function injectPanel() {
 
   // Toggle button
   const toggle = document.createElement('button');
-  toggle.id = 'tos-toggle';
+  toggle.id = 'drifty-toggle';
   toggle.innerHTML = iconSVG(16);
   Object.assign(toggle.style, {
     position: 'fixed',
@@ -132,7 +132,7 @@ function injectPanel() {
 
   // Drift badge
   const badge = document.createElement('span');
-  badge.id = 'tos-badge';
+  badge.id = 'drifty-badge';
   Object.assign(badge.style, {
     position: 'fixed',
     bottom: '48px',
@@ -149,7 +149,7 @@ function injectPanel() {
 
   // Pulse keyframe
   const style = document.createElement('style');
-  style.textContent = `@keyframes tos-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.8}}`;
+  style.textContent = `@keyframes drifty-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.8}}`;
   document.head.appendChild(style);
 
   // Toggle logic
@@ -166,11 +166,11 @@ function injectPanel() {
 
   // Listen for drift events to light up badge
   window.addEventListener('message', e => {
-    if (e.data?.source !== 'tos-content') return;
+    if (e.data?.source !== 'drifty-content') return;
     if (e.data.type === 'SESSION_CAPTURED' && e.data.drift?.drift) {
       badge.style.display = 'block';
       badge.style.background = e.data.drift.severity === 'high' ? '#ef4444' : '#eab308';
-      badge.style.animation = 'tos-pulse 1.4s 3';
+      badge.style.animation = 'drifty-pulse 1.4s 3';
     }
   });
 
@@ -183,13 +183,13 @@ function injectSaveButton(anchorSel, getPrompt, getResponse) {
   let injected = false;
 
   const tryInject = () => {
-    if (injected || document.getElementById('tos-save-btn')) return;
+    if (injected || document.getElementById('drifty-save-btn')) return;
     const anchor = document.querySelector(anchorSel);
     if (!anchor) return;
     injected = true;
 
     const btn = document.createElement('button');
-    btn.id = 'tos-save-btn';
+    btn.id = 'drifty-save-btn';
     btn.innerHTML = `${iconSVG(11)} Save to Thread`;
     Object.assign(btn.style, {
       display: 'inline-flex',
@@ -266,8 +266,8 @@ function startCapture() {
     if (!p || !r) return;
     const key = p.slice(-40) + r.slice(-40);
     if (key === lastTurn) return;
-    clearTimeout(window.__tos_t);
-    window.__tos_t = setTimeout(() => {
+    clearTimeout(window.__drifty_t);
+    window.__drifty_t = setTimeout(() => {
       const finalR = getAssistant();
       const finalKey = p.slice(-40) + finalR.slice(-40);
       if (finalKey === lastTurn || !finalR) return;

@@ -122,7 +122,7 @@ function checkIncompleteTasks(prevSession, currPrompt) {
   };
 }
 
-// ── FIDELITY SCORE ────────────────────────────────────────────────────────────
+// ── ALIGNMENT SCORE ────────────────────────────────────────────────────────────
 // Score 0–100 representing thread alignment for this session
 // Higher = more faithful to the thread brief
 function computeAlignmentScore({ coverage, violations, scopeExpansion, incompleteTasks }) {
